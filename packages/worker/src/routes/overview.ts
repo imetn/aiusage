@@ -13,6 +13,7 @@ export const TOTAL_TOKENS_SQL = `
 
 const PROJECT_DISPLAY_SQL = `COALESCE(b.project_alias, b.project_display)`;
 const ACTIVITY_PROJECT_DISPLAY_SQL = `COALESCE(a.project_alias, a.project_display)`;
+const USER_MESSAGE_KINDS = `('user_message', 'user_message_chars')`;
 
 export type FilterKey = 'deviceId' | 'provider' | 'product' | 'channel' | 'model' | 'project';
 
@@ -430,9 +431,10 @@ async function loadInteractionMetrics(filters: DashboardFilters, env: Env) {
     rows = await Promise.all([
     env.DB.prepare(`
       SELECT
-        COALESCE(SUM(CASE WHEN a.kind != 'user_message' AND a.confidence = 'exact' THEN a.event_count ELSE 0 END), 0) AS exact_count,
-        COALESCE(SUM(CASE WHEN a.kind != 'user_message' AND a.confidence = 'proxy' THEN a.event_count ELSE 0 END), 0) AS proxy_count,
+        COALESCE(SUM(CASE WHEN a.kind NOT IN ${USER_MESSAGE_KINDS} AND a.confidence = 'exact' THEN a.event_count ELSE 0 END), 0) AS exact_count,
+        COALESCE(SUM(CASE WHEN a.kind NOT IN ${USER_MESSAGE_KINDS} AND a.confidence = 'proxy' THEN a.event_count ELSE 0 END), 0) AS proxy_count,
         COALESCE(SUM(CASE WHEN a.kind = 'user_message' THEN a.event_count ELSE 0 END), 0) AS user_message_count,
+        COALESCE(SUM(CASE WHEN a.kind = 'user_message_chars' THEN a.event_count ELSE 0 END), 0) AS user_message_chars,
         COALESCE(SUM(CASE WHEN a.kind = 'function_call' THEN a.event_count ELSE 0 END), 0) AS function_call_count,
         COALESCE(SUM(CASE WHEN a.kind IN ('tool_call', 'custom_tool_call', 'mcp_tool_call') THEN a.event_count ELSE 0 END), 0) AS tool_call_count,
         COALESCE(SUM(CASE WHEN a.kind = 'skill_call' THEN a.event_count ELSE 0 END), 0) AS skill_call_count,
@@ -444,6 +446,7 @@ async function loadInteractionMetrics(filters: DashboardFilters, env: Env) {
       exact_count: number;
       proxy_count: number;
       user_message_count: number;
+      user_message_chars: number;
       function_call_count: number;
       tool_call_count: number;
       skill_call_count: number;
@@ -460,15 +463,16 @@ async function loadInteractionMetrics(filters: DashboardFilters, env: Env) {
       a.kind = 'agent_call'
     `, `a.source || '|' || a.name`, `a.name || ' (' || a.source || ')'`),
     loadActivityTopList(where, env, `
-      a.kind IS NOT NULL
+      a.kind != 'user_message_chars'
     `, `a.kind`, `a.kind`),
+    loadPromptTrend(where, env),
     ]);
   } catch (error) {
     if (String(error).includes('daily_activity_breakdown')) return emptyInteractionMetrics();
     throw error;
   }
 
-  const [summary, topTools, topSkills, topAgents, kindShare] = rows;
+  const [summary, topTools, topSkills, topAgents, kindShare, promptTrend] = rows;
 
   const exactCount = Number(summary?.exact_count ?? 0);
   const proxyCount = Number(summary?.proxy_count ?? 0);
@@ -478,6 +482,8 @@ async function loadInteractionMetrics(filters: DashboardFilters, env: Env) {
     exactCount,
     proxyCount,
     userMessageCount,
+    userMessageChars: Number(summary?.user_message_chars ?? 0),
+    promptTrend,
     functionCallCount: Number(summary?.function_call_count ?? 0),
     toolCallCount: Number(summary?.tool_call_count ?? 0),
     skillCallCount: Number(summary?.skill_call_count ?? 0),
@@ -562,6 +568,8 @@ function emptyInteractionMetrics() {
     exactCount: 0,
     proxyCount: 0,
     userMessageCount: 0,
+    userMessageChars: 0,
+    promptTrend: [],
     functionCallCount: 0,
     toolCallCount: 0,
     skillCallCount: 0,
@@ -572,6 +580,27 @@ function emptyInteractionMetrics() {
     topAgents: [],
     kindShare: [],
   };
+}
+
+// Daily human prompt volume: message count and typed characters
+async function loadPromptTrend(where: WhereParts, env: Env) {
+  const condition = `a.kind IN ${USER_MESSAGE_KINDS}`;
+  const rows = await env.DB.prepare(`
+    SELECT
+      a.usage_date AS usage_date,
+      COALESCE(SUM(CASE WHEN a.kind = 'user_message' THEN a.event_count ELSE 0 END), 0) AS message_count,
+      COALESCE(SUM(CASE WHEN a.kind = 'user_message_chars' THEN a.event_count ELSE 0 END), 0) AS char_count
+    FROM daily_activity_breakdown a
+    ${where.whereClause ? `${where.whereClause} AND ${condition}` : `WHERE ${condition}`}
+    GROUP BY a.usage_date
+    ORDER BY a.usage_date ASC
+  `).bind(...where.params).all<{ usage_date: string; message_count: number; char_count: number }>();
+
+  return (rows.results ?? []).map(row => ({
+    usageDate: row.usage_date,
+    messageCount: Number(row.message_count ?? 0),
+    charCount: Number(row.char_count ?? 0),
+  }));
 }
 
 async function loadActivityTopList(

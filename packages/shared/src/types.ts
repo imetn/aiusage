@@ -151,6 +151,8 @@ export interface InteractionMetricsPayload {
   exactCount: number;
   proxyCount: number;
   userMessageCount?: number;
+  userMessageChars?: number;
+  promptTrend?: PromptTrendItem[];
   functionCallCount: number;
   toolCallCount: number;
   skillCallCount: number;
@@ -160,6 +162,12 @@ export interface InteractionMetricsPayload {
   topSkills: InteractionMetricItem[];
   topAgents: InteractionMetricItem[];
   kindShare: InteractionMetricItem[];
+}
+
+export interface PromptTrendItem {
+  usageDate: string;
+  messageCount: number;
+  charCount: number;
 }
 
 export interface DailyTrendItem {
