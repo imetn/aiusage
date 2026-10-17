@@ -20,6 +20,7 @@ import { KpiCard, CostKpiCard } from './components/kpi-card';
 import { useFetchCnyRate, useCurrencyStore } from './hooks/use-cny-rate';
 import { CostTrendChart } from './components/cost-trend-chart';
 import { TokenTrendChart } from './components/token-trend-chart';
+import { PromptTrendChart } from './components/prompt-trend-chart';
 import { TokenCompositionChart } from './components/token-composition-chart';
 import { FlowChart } from './components/flow-chart';
 import { DonutSection } from './components/donut-section';
@@ -678,6 +679,24 @@ export function App() {
                 />
               </ChartBoundary>
             )}
+          </div>
+
+          {/* ── Prompt Trend ── */}
+          <div className="card fade-up p-6" style={{ animationDelay: '205ms' }}>
+            <SectionHeader
+              title={t.promptTrend}
+              stat={typeof overview?.interactionMetrics?.userMessageChars === 'number'
+                ? `${formatNumber(overview.interactionMetrics.userMessageCount ?? 0)} / ${formatCompact(overview.interactionMetrics.userMessageChars, locale)}`
+                : undefined}
+            />
+            <ChartBoundary name="Prompt Trend">
+              <PromptTrendChart
+                data={overview?.interactionMetrics?.promptTrend ?? []}
+                dates={(overview?.dailyTrend ?? []).map(d => d.usageDate)}
+                locale={locale}
+                labels={{ messageCount: t.promptMessages, charCount: t.promptChars }}
+              />
+            </ChartBoundary>
           </div>
 
           {/* ── Token Trend ── */}
