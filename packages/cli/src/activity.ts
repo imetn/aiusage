@@ -1,4 +1,4 @@
-import { open, readdir } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -321,7 +321,7 @@ async function scanCodexActivity(
 ): Promise<ScanResult> {
   const baseDir = options.codexDir ?? join(homedir(), '.codex');
   const acc = createAccumulator(targetDates, options.projectAliases);
-  const files = await collectCodexSessionFiles(baseDir);
+  const files = await keepRecentFiles(await collectCodexSessionFiles(baseDir), targetDates, path => path);
   acc.stats.filesScanned = files.length;
   await runWithConcurrency(files, FILE_CONCURRENCY, async filePath => {
     await processCodexFile(filePath, acc);
@@ -611,8 +611,9 @@ async function scanClaudeActivity(
     }
   }
 
-  acc.stats.filesScanned = fileJobs.length;
-  await runWithConcurrency(fileJobs, FILE_CONCURRENCY, async job => {
+  const recentJobs = await keepRecentFiles(fileJobs, targetDates, job => job.filePath);
+  acc.stats.filesScanned = recentJobs.length;
+  await runWithConcurrency(recentJobs, FILE_CONCURRENCY, async job => {
     await processClaudeFile(job.filePath, job.projectFields, acc);
   });
   return finalizeActivity(acc);
@@ -818,6 +819,26 @@ function addUserMessage(
       amount: input.chars,
     });
   }
+}
+
+// A file last written before the earliest target date holds no records for it, so skip
+// reading (and decompressing) it; one day of slack covers timezone differences
+async function keepRecentFiles<T>(
+  items: T[],
+  targetDates: Set<string> | undefined,
+  pathOf: (item: T) => string,
+): Promise<T[]> {
+  if (!targetDates?.size) return items;
+  const earliest = [...targetDates].sort()[0];
+  const cutoff = Date.parse(`${earliest}T00:00:00Z`) - 24 * 60 * 60 * 1000;
+  const keep = await Promise.all(items.map(async item => {
+    try {
+      return (await stat(pathOf(item))).mtimeMs >= cutoff;
+    } catch {
+      return false;
+    }
+  }));
+  return items.filter((_, i) => keep[i]);
 }
 
 function acceptsDate(acc: ActivityAccumulator, usageDate: string): boolean {
