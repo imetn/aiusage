@@ -2,6 +2,7 @@ import { open, readdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import * as zlib from 'node:zlib';
 import { dateKey, parseTs, resolveProjectFields, runWithConcurrency, type ProjectFields } from './scanners/utils.js';
 import type { ReportRange } from './report.js';
 
@@ -11,6 +12,7 @@ const MAX_LINE_BYTES = 64 * 1024 * 1024; // 64 MB
 export type ActivityConfidence = 'exact' | 'proxy';
 export type ActivityKind =
   | 'user_message'
+  | 'user_message_chars'
   | 'function_call'
   | 'custom_tool_call'
   | 'tool_call'
@@ -53,6 +55,7 @@ export interface ActivityDailySummary {
   exactCount: number;
   proxyCount: number;
   userMessageCount: number;
+  userMessageChars: number;
 }
 
 export interface ActivityReport {
@@ -66,6 +69,7 @@ export interface ActivityReport {
     exactCount: number;
     proxyCount: number;
     userMessageCount: number;
+    userMessageChars: number;
     filesScanned: number;
     sessionsScanned: number;
   };
@@ -112,6 +116,8 @@ interface CodexRecord {
     id?: string;
     type?: string;
     cwd?: string;
+    originator?: string;
+    source?: unknown;
     item?: CodexResponseItem;
     [key: string]: unknown;
   };
@@ -139,6 +145,17 @@ interface ClaudeRecord {
   sessionId?: string;
   uuid?: string;
   isMeta?: boolean;
+  isSidechain?: boolean;
+  isCompactSummary?: boolean;
+  isVisibleInTranscriptOnly?: boolean;
+  promptSource?: unknown;
+  origin?: { kind?: string };
+  attachment?: {
+    type?: string;
+    prompt?: ClaudeContentBlock[] | string;
+    origin?: { kind?: string };
+    source_uuid?: string;
+  };
   sourceToolAssistantUUID?: string;
   sourceToolUseID?: string;
   toolUseResult?: unknown;
@@ -175,7 +192,8 @@ export async function buildActivityReport(
       usageDate,
       exactCount: sumByConfidence(dayItems, 'exact'),
       proxyCount: sumByConfidence(dayItems, 'proxy'),
-      userMessageCount: sumUserMessages(dayItems),
+      userMessageCount: sumKind(dayItems, 'user_message'),
+      userMessageChars: sumKind(dayItems, 'user_message_chars'),
     };
   }).filter(day => requestedDates || day.exactCount > 0 || day.proxyCount > 0 || day.userMessageCount > 0);
 
@@ -190,12 +208,13 @@ export async function buildActivityReport(
       exactCount: sumByConfidence(items, 'exact'),
       proxyCount: sumByConfidence(items, 'proxy'),
       userMessageCount: codex.stats.userMessages.size + claude.stats.userMessages.size,
+      userMessageChars: sumKind(items, 'user_message_chars'),
       filesScanned: codex.stats.filesScanned + claude.stats.filesScanned,
       sessionsScanned: new Set([...codex.stats.sessions, ...claude.stats.sessions]).size,
     },
     daily,
     bySource: summarize(items, item => item.source, item => item.source),
-    byKind: summarize(items, item => item.kind, item => labelKind(item.kind)),
+    byKind: summarize(items.filter(item => item.kind !== 'user_message_chars'), item => item.kind, item => labelKind(item.kind)),
     topTools: summarize(
       items.filter(item => isToolLikeKind(item.kind)),
       item => `${item.source}|${item.name}`,
@@ -218,6 +237,7 @@ export async function buildActivityReport(
     notes: [
       'Claude Code 的 Skill/Agent 来自结构化 tool_use，口径为 exact。',
       'Codex 的 skill_proxy 来自命令中读取 SKILL.md 的痕迹，只能表示代理信号。',
+      '用户消息只计人工输入：剔除系统注入、子代理、自动化与定时任务；字数为去空白字符数，Claude Code 不含粘贴块。',
       'sync 会上传按日聚合后的 activity 指标，不上传原始消息内容。',
     ],
   };
@@ -232,6 +252,7 @@ export function renderActivityReport(report: ActivityReport, opts: { emoji: bool
   lines.push(`确切事件  ${fmt(report.totals.exactCount)}`);
   lines.push(`代理信号  ${fmt(report.totals.proxyCount)}`);
   lines.push(`用户消息  ${fmt(report.totals.userMessageCount)}`);
+  lines.push(`用户字数  ${fmt(report.totals.userMessageChars)}`);
   lines.push(`Session   ${fmt(report.totals.sessionsScanned)}`);
   lines.push(`文件      ${fmt(report.totals.filesScanned)}`);
 
@@ -281,7 +302,7 @@ export function renderActivityReport(report: ActivityReport, opts: { emoji: bool
     lines.push('');
     lines.push('每日');
     for (const day of report.daily) {
-      lines.push(`  ${day.usageDate}: exact ${fmt(day.exactCount)} / proxy ${fmt(day.proxyCount)} / user ${fmt(day.userMessageCount)}`);
+      lines.push(`  ${day.usageDate}: exact ${fmt(day.exactCount)} / proxy ${fmt(day.proxyCount)} / user ${fmt(day.userMessageCount)} (${fmt(day.userMessageChars)} 字)`);
     }
   }
 
@@ -309,6 +330,9 @@ async function scanCodexActivity(
 }
 
 async function processCodexFile(filePath: string, acc: ActivityAccumulator): Promise<void> {
+  const compressed = filePath.endsWith('.zst');
+  // Codex compresses old rollouts; zstd needs Node 22.15+, older runtimes skip them
+  if (compressed && typeof zlib.createZstdDecompress !== 'function') return;
   let fh;
   try {
     fh = await open(filePath, 'r');
@@ -316,13 +340,18 @@ async function processCodexFile(filePath: string, acc: ActivityAccumulator): Pro
     return;
   }
 
-  const fallbackSessionId = basename(filePath).replace(/\.jsonl$/, '');
+  const fallbackSessionId = basename(filePath).replace(/\.jsonl(\.zst)?$/, '');
   let sessionId = fallbackSessionId;
   let projectFields: ProjectFields = { project: 'unknown', projectDisplay: 'unknown' };
+  let automated = false;
+  // Newer rollouts log typed text as item_completed/UserMessage, older ones as event_msg/user_message
+  const itemMessages: CodexUserMessage[] = [];
+  const eventMessages: CodexUserMessage[] = [];
 
   try {
+    const stream = fh.createReadStream();
     const rl = createInterface({
-      input: fh.createReadStream({ encoding: 'utf-8' }),
+      input: compressed ? stream.pipe(zlib.createZstdDecompress()) : stream.setEncoding('utf-8'),
       crlfDelay: Infinity,
     });
 
@@ -340,6 +369,7 @@ async function processCodexFile(filePath: string, acc: ActivityAccumulator): Pro
       if (record.type === 'session_meta') {
         const id = stringValue(record.payload?.id);
         if (id) sessionId = id;
+        automated = isAutomatedCodexSession(record.payload);
         acc.stats.sessions.add(`codex:${sessionId}`);
         continue;
       }
@@ -361,12 +391,80 @@ async function processCodexFile(filePath: string, acc: ActivityAccumulator): Pro
       }
 
       if (record.type === 'event_msg') {
+        const message = codexUserMessage(record);
+        if (message) {
+          (record.payload?.type === 'item_completed' ? itemMessages : eventMessages)
+            .push({ ...message, usageDate, projectFields });
+          continue;
+        }
         handleCodexEvent(record, usageDate, projectFields, sessionId, filePath, acc);
       }
     }
+  } catch {
+    // Truncated or corrupt file: keep what was read
   } finally {
     await fh.close();
   }
+
+  if (automated) return;
+  for (const message of itemMessages.length ? itemMessages : eventMessages) {
+    const text = codexTypedText(message.text);
+    if (!text) continue;
+    addUserMessage(acc, {
+      provider: 'openai',
+      product: 'codex',
+      usageDate: message.usageDate,
+      projectFields: message.projectFields,
+      sessionId,
+      timestamp: message.timestamp,
+      content: text,
+      chars: countChars(text),
+      fallbackKey: `${filePath}:${message.usageDate}:${sessionId}:user:${message.timestamp}`,
+    });
+  }
+}
+
+interface CodexUserMessage {
+  timestamp: string;
+  text: string;
+  usageDate: string;
+  projectFields: ProjectFields;
+}
+
+function codexUserMessage(record: CodexRecord): Omit<CodexUserMessage, 'usageDate' | 'projectFields'> | undefined {
+  const payload = record.payload;
+  if (payload?.type === 'user_message') {
+    return { timestamp: record.timestamp ?? '', text: stringValue(payload.message) ?? '' };
+  }
+  if (payload?.type === 'item_completed' && payload.item?.type === 'UserMessage') {
+    return { timestamp: record.timestamp ?? '', text: extractCodexMessageText(payload.item.content) ?? '' };
+  }
+  return undefined;
+}
+
+// codex exec runs and subagent threads (e.g. the guardian reviewer) are not typed by the user
+function isAutomatedCodexSession(payload: CodexRecord['payload']): boolean {
+  if (payload?.originator === 'codex_exec') return true;
+  const source = payload?.source;
+  return typeof source === 'object' && source !== null && 'subagent' in source;
+}
+
+const CODEX_MY_REQUEST = /^## My request[^\n]*:[ \t]*$/gm;
+const CODEX_BROWSER_COMMENT = /^Comment:\n([\s\S]*?)(?=\n\n## User Comment|\n\n#|\nThe next image|$(?![\s\S]))/gm;
+
+// Codex Desktop wraps typed text with context headers; keep only what the user wrote
+export function codexTypedText(raw: string): string | undefined {
+  let text = raw;
+  const requests = [...raw.matchAll(CODEX_MY_REQUEST)];
+  if (requests.length) {
+    const last = requests[requests.length - 1];
+    text = raw.slice(last.index! + last[0].length);
+  } else if (raw.trimStart().startsWith('# Browser comments')) {
+    text = [...raw.matchAll(CODEX_BROWSER_COMMENT)].map(m => m[1]).join('\n');
+  }
+  // Tag-led turns are injected context (environment, automation heartbeat…)
+  if (text.trimStart().startsWith('<')) return undefined;
+  return text.trim() ? text : undefined;
 }
 
 function handleCodexResponseItem(
@@ -382,21 +480,8 @@ function handleCodexResponseItem(
   const callId = item.call_id;
   const baseKey = callId ? `codex:${item.type}:${callId}` : `codex:${filePath}:${usageDate}:${item.type}:${item.name ?? ''}:${item.arguments ?? ''}`;
 
-  if (item.type === 'message') {
-    if (item.role === 'user' && hasCodexUserMessageContent(item.content)) {
-      addUserMessage(acc, {
-        provider: 'openai',
-        product: 'codex',
-        usageDate,
-        projectFields,
-        sessionId,
-        timestamp,
-        content: extractCodexMessageText(item.content),
-        fallbackKey: `${filePath}:${usageDate}:${sessionId}:${JSON.stringify(item.content ?? '')}`,
-      });
-    }
-    return;
-  }
+  // role=user messages also carry injected AGENTS.md / environment context; typed text comes from events
+  if (item.type === 'message') return;
 
   if (item.type === 'function_call') {
     const name = item.name ?? 'unknown';
@@ -473,20 +558,6 @@ function handleCodexEvent(
   acc: ActivityAccumulator,
 ): void {
   const payloadType = record.payload?.type;
-  if (payloadType === 'user_message') {
-    addUserMessage(acc, {
-      provider: 'openai',
-      product: 'codex',
-      usageDate,
-      projectFields,
-      sessionId,
-      timestamp: record.timestamp ?? '',
-      content: stringValue(record.payload?.message),
-      fallbackKey: `${filePath}:${usageDate}:${sessionId}:event_user_message:${record.timestamp ?? ''}`,
-    });
-    return;
-  }
-
   const kind = payloadType === 'task_started' || payloadType === 'task_complete'
     ? 'task'
     : payloadType === 'context_compacted'
@@ -583,18 +654,23 @@ async function processClaudeFile(filePath: string, fallbackFields: ProjectFields
       acc.stats.sessions.add(`claude:${sessionId}`);
       const projectFields = record.cwd ? resolveProjectFields(record.cwd, acc.projectAliases) : fallbackFields;
 
-      if (isClaudeUserMessage(record)) {
-        addUserMessage(acc, {
-          provider: 'anthropic',
-          product: 'claude-code',
-          usageDate,
-          projectFields,
-          sessionId,
-          timestamp: record.timestamp ?? '',
-          content: extractClaudeMessageText(record.message?.content),
-          fallbackKey: `${filePath}:${usageDate}:${sessionId}:user:${record.timestamp ?? ''}`,
-          id: record.uuid,
-        });
+      const prompt = claudeHumanPrompt(record);
+      if (prompt) {
+        const typed = claudeTypedText(prompt.text);
+        if (typed !== undefined) {
+          addUserMessage(acc, {
+            provider: 'anthropic',
+            product: 'claude-code',
+            usageDate,
+            projectFields,
+            sessionId,
+            timestamp: record.timestamp ?? '',
+            content: prompt.text,
+            chars: countChars(typed),
+            fallbackKey: `${filePath}:${usageDate}:${sessionId}:user:${record.timestamp ?? ''}`,
+            id: prompt.id,
+          });
+        }
       }
 
       const blocks = Array.isArray(record.message?.content) ? record.message.content : [];
@@ -658,8 +734,10 @@ function addActivity(
     name: string;
     confidence: ActivityConfidence;
     dedupeKey: string;
+    amount?: number;
   },
 ): void {
+  const amount = input.amount ?? 1;
   if (acc.seen.has(input.dedupeKey)) return;
   acc.seen.add(input.dedupeKey);
   const source = `${input.provider}/${input.product}`;
@@ -673,7 +751,7 @@ function addActivity(
   ].join('|');
   const existing = acc.items.get(key);
   if (existing) {
-    existing.count += 1;
+    existing.count += amount;
     return;
   }
   acc.items.set(key, {
@@ -686,7 +764,7 @@ function addActivity(
     projectAlias: input.projectFields.projectAlias,
     kind: input.kind,
     name: input.name,
-    count: 1,
+    count: amount,
     confidence: input.confidence,
   });
 }
@@ -701,6 +779,7 @@ function addUserMessage(
     sessionId: string;
     timestamp: string;
     content?: string;
+    chars: number;
     fallbackKey: string;
     id?: string;
   },
@@ -725,6 +804,20 @@ function addUserMessage(
     confidence: 'exact',
     dedupeKey: `activity:${key}`,
   });
+  if (input.chars > 0) {
+    addActivity(acc, {
+      usageDate: input.usageDate,
+      provider: input.provider,
+      product: input.product,
+      projectFields: input.projectFields,
+      sessionId: input.sessionId,
+      kind: 'user_message_chars',
+      name: 'user_message_chars',
+      confidence: 'exact',
+      dedupeKey: `activity:${key}:chars`,
+      amount: input.chars,
+    });
+  }
 }
 
 function acceptsDate(acc: ActivityAccumulator, usageDate: string): boolean {
@@ -736,10 +829,10 @@ async function collectCodexSessionFiles(baseDir: string): Promise<string[]> {
   try {
     const files = await readdir(join(baseDir, 'archived_sessions'));
     for (const file of files) {
-      if (file.endsWith('.jsonl')) paths.push(join(baseDir, 'archived_sessions', file));
+      if (isCodexSessionFile(file)) paths.push(join(baseDir, 'archived_sessions', file));
     }
   } catch { /* ignore */ }
-  await walkJsonl(join(baseDir, 'sessions'), paths);
+  await walkJsonl(join(baseDir, 'sessions'), paths, isCodexSessionFile);
   return paths;
 }
 
@@ -756,7 +849,15 @@ function getClaudeProjectDirs(configured?: string[]): string[] {
   ];
 }
 
-async function walkJsonl(dir: string, result: string[]): Promise<void> {
+function isCodexSessionFile(name: string): boolean {
+  return name.endsWith('.jsonl') || name.endsWith('.jsonl.zst');
+}
+
+async function walkJsonl(
+  dir: string,
+  result: string[],
+  accept: (name: string) => boolean = name => name.endsWith('.jsonl'),
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -766,8 +867,8 @@ async function walkJsonl(dir: string, result: string[]): Promise<void> {
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      await walkJsonl(fullPath, result);
-    } else if (entry.name.endsWith('.jsonl')) {
+      await walkJsonl(fullPath, result, accept);
+    } else if (accept(entry.name)) {
       result.push(fullPath);
     }
   }
@@ -803,21 +904,47 @@ function getClaudeMetricName(toolName: string, input: Record<string, unknown> | 
   return toolName;
 }
 
-function isClaudeUserMessage(record: ClaudeRecord): boolean {
-  if (record.type !== 'user' || record.message?.role !== 'user') return false;
-  if (record.isMeta) return false;
-  if (record.toolUseResult || record.sourceToolAssistantUUID || record.sourceToolUseID) return false;
+// Human turns: typed prompts plus messages queued while the agent was busy
+function claudeHumanPrompt(record: ClaudeRecord): { text: string; id?: string } | undefined {
+  const attachment = record.attachment;
+  if (attachment?.type === 'queued_command') {
+    if (attachment.origin?.kind !== 'human') return undefined;
+    return { text: extractClaudeMessageText(attachment.prompt) ?? '', id: attachment.source_uuid };
+  }
+  if (record.type !== 'user' || record.message?.role !== 'user') return undefined;
+  if (record.isMeta || record.isSidechain || record.isCompactSummary || record.isVisibleInTranscriptOnly) return undefined;
+  // Newer transcripts mark the author (desktop turns are human-origin even via SDK);
+  // without it, drop headless SDK runs and system-injected turns
+  if (record.origin) {
+    if (record.origin.kind !== 'human') return undefined;
+  } else if (record.promptSource === 'sdk' || record.promptSource === 'system') {
+    return undefined;
+  }
+  if (record.toolUseResult || record.sourceToolAssistantUUID || record.sourceToolUseID) return undefined;
   const content = record.message.content;
-  if (typeof content === 'string') return content.trim().length > 0;
-  if (!Array.isArray(content) || content.length === 0) return false;
-  if (content.some(block => block?.type === 'tool_result')) return false;
-  return content.some(block => block?.type === 'text' && stringValue(block.text));
+  if (Array.isArray(content) && content.some(block => block?.type === 'tool_result')) return undefined;
+  const text = extractClaudeMessageText(content);
+  return text ? { text, id: record.uuid } : undefined;
 }
 
-function hasCodexUserMessageContent(content: CodexContentBlock[] | string | undefined): boolean {
-  if (typeof content === 'string') return content.trim().length > 0;
-  if (!Array.isArray(content) || content.length === 0) return false;
-  return content.some(block => block?.type === 'input_text' || block?.type === 'text');
+const CLAUDE_REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
+const CLAUDE_PASTE = /<pasted_content[^>]*>[\s\S]*?<\/pasted_content[^>]*>/g;
+const CLAUDE_PLACEHOLDER = /\[(?:Pasted text #\d+(?: \+\d+ lines)?|Image #\d+)\]/g;
+
+// Typed text without reminders and pasted blocks; undefined for injected turns
+// (slash command output, scheduled task, task notification…)
+export function claudeTypedText(raw: string): string | undefined {
+  const text = raw.replace(CLAUDE_REMINDER, '').replace(CLAUDE_PASTE, '');
+  const trimmed = text.trimStart();
+  if (!trimmed || trimmed.startsWith('<') || trimmed.startsWith('Caveat:') || trimmed.startsWith('[Request interrupted')) {
+    return undefined;
+  }
+  return text.replace(CLAUDE_PLACEHOLDER, '');
+}
+
+// Non-whitespace code points: one per CJK character or Latin letter
+export function countChars(text: string): number {
+  return [...text.replace(/\s+/g, '')].length;
 }
 
 function extractCodexMessageText(content: CodexContentBlock[] | string | undefined): string | undefined {
@@ -910,11 +1037,15 @@ function summarize(
 }
 
 function sumByConfidence(items: ActivityItem[], confidence: ActivityConfidence): number {
-  return items.reduce((sum, item) => sum + (item.kind !== 'user_message' && item.confidence === confidence ? item.count : 0), 0);
+  return items.reduce((sum, item) => sum + (!isUserMessageKind(item.kind) && item.confidence === confidence ? item.count : 0), 0);
 }
 
-function sumUserMessages(items: ActivityItem[]): number {
-  return items.reduce((sum, item) => sum + (item.kind === 'user_message' ? item.count : 0), 0);
+function sumKind(items: ActivityItem[], kind: ActivityKind): number {
+  return items.reduce((sum, item) => sum + (item.kind === kind ? item.count : 0), 0);
+}
+
+function isUserMessageKind(kind: ActivityKind): boolean {
+  return kind === 'user_message' || kind === 'user_message_chars';
 }
 
 function isToolLikeKind(kind: ActivityKind): boolean {
@@ -930,6 +1061,7 @@ function isToolLikeKind(kind: ActivityKind): boolean {
 function labelKind(kind: ActivityKind): string {
   switch (kind) {
     case 'user_message': return 'User Message';
+    case 'user_message_chars': return 'User Message Chars';
     case 'function_call': return 'Function Call';
     case 'custom_tool_call': return 'Custom Tool Call';
     case 'tool_call': return 'Tool Call';

@@ -180,4 +180,82 @@ describe('buildActivityReport', () => {
     expect(report.topSkills[0].label).toBe('security-review (anthropic/claude-code)');
     expect(report.topAgents[0].label).toBe('审计 CLI 指标 (anthropic/claude-code)');
   });
+
+  it('counts only human Claude Code prompts and their typed characters', async () => {
+    const claudeProjects = join(tmpDir, 'claude', 'projects');
+    const base = { sessionId: 's1', cwd: '/Users/test/AIUsage' };
+    await writeJsonl(join(claudeProjects, '-Users-test-AIUsage', 's1.jsonl'), [
+      {
+        ...base, type: 'user', uuid: 'u1', timestamp: '2026-06-24T12:00:00.000Z', origin: { kind: 'human' },
+        message: {
+          role: 'user',
+          content: '改一下 status line<system-reminder>ignored</system-reminder><pasted_content id="1">粘贴的内容</pasted_content>',
+        },
+      },
+      {
+        ...base, type: 'user', uuid: 'u2', timestamp: '2026-06-24T12:01:00.000Z', origin: { kind: 'task-notification' },
+        message: { role: 'user', content: '<task-notification>done</task-notification>' },
+      },
+      {
+        ...base, type: 'user', uuid: 'u3', timestamp: '2026-06-24T12:02:00.000Z', isCompactSummary: true,
+        message: { role: 'user', content: 'This session is being continued from a previous conversation' },
+      },
+      {
+        ...base, type: 'user', uuid: 'u4', timestamp: '2026-06-24T12:03:00.000Z', origin: { kind: 'human' },
+        message: { role: 'user', content: '<scheduled-task name="daily">automated run</scheduled-task>' },
+      },
+      {
+        ...base, type: 'attachment', uuid: 'a1', timestamp: '2026-06-24T12:04:00.000Z',
+        attachment: { type: 'queued_command', prompt: 'hi you', origin: { kind: 'human' }, source_uuid: 'q1' },
+      },
+    ]);
+
+    const { buildActivityReport } = await import('../activity.js');
+    const report = await buildActivityReport('today', {
+      dates: ['2026-06-24'],
+      codexDir: join(tmpDir, 'missing-codex'),
+      claudeProjectsDirs: [claudeProjects],
+    });
+
+    expect(report.totals.userMessageCount).toBe(2);
+    // "改一下statusline" = 13, "hiyou" = 5; pasted block excluded
+    expect(report.totals.userMessageChars).toBe(18);
+    expect(report.daily[0].userMessageChars).toBe(18);
+  });
+
+  it('extracts typed Codex text and skips automated sessions', async () => {
+    const codexDir = join(tmpDir, 'codex');
+    await writeJsonl(join(codexDir, 'sessions', '2026', '06', '24', 'rollout-a.jsonl'), [
+      { type: 'session_meta', timestamp: '2026-06-24T12:00:00.000Z', payload: { id: 'a', originator: 'Codex Desktop', source: 'vscode' } },
+      {
+        type: 'response_item', timestamp: '2026-06-24T12:00:01.000Z',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions' }] },
+      },
+      {
+        type: 'event_msg', timestamp: '2026-06-24T12:00:02.000Z',
+        payload: {
+          type: 'item_completed',
+          item: { type: 'UserMessage', content: [{ type: 'text', text: '# Files mentioned by the user:\n\n## a.png: /tmp/a.png\n\n## My request:\n看看这张图' }] },
+        },
+      },
+      {
+        type: 'event_msg', timestamp: '2026-06-24T12:00:03.000Z',
+        payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: '<heartbeat>tick</heartbeat>' }] } },
+      },
+    ]);
+    await writeJsonl(join(codexDir, 'sessions', '2026', '06', '24', 'rollout-b.jsonl'), [
+      { type: 'session_meta', timestamp: '2026-06-24T12:00:00.000Z', payload: { id: 'b', source: { subagent: { other: 'guardian' } } } },
+      { type: 'event_msg', timestamp: '2026-06-24T12:00:01.000Z', payload: { type: 'user_message', message: 'The following is the Codex agent history' } },
+    ]);
+
+    const { buildActivityReport } = await import('../activity.js');
+    const report = await buildActivityReport('today', {
+      dates: ['2026-06-24'],
+      codexDir,
+      claudeProjectsDirs: [join(tmpDir, 'missing-claude')],
+    });
+
+    expect(report.totals.userMessageCount).toBe(1);
+    expect(report.totals.userMessageChars).toBe(5);
+  });
 });
