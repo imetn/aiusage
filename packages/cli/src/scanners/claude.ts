@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
 import type { IngestBreakdown } from '@aiusage/shared';
-import { inferProviderFromModel, normalizeModelName, runWithConcurrency, type ProjectFields } from './utils.js';
+import { inferProviderFromModel, keepFilesModifiedSince, normalizeModelName, runWithConcurrency, type ProjectFields } from './utils.js';
 
 const FILE_CONCURRENCY = 16;
 const MAX_LINE_BYTES = 64 * 1024 * 1024; // 64 MB
@@ -181,9 +181,10 @@ export async function scanClaudeDates(
     }
   }
   fileJobs.sort((a, b) => a.filePath.localeCompare(b.filePath));
+  const recentJobs = await keepFilesModifiedSince(fileJobs, targetDateSet, job => job.filePath);
 
   // 并发流式处理文件，直接聚合到 groupedByDate
-  await runWithConcurrency(fileJobs, FILE_CONCURRENCY, async (job) => {
+  await runWithConcurrency(recentJobs, FILE_CONCURRENCY, async (job) => {
     await processJsonlFile(job.filePath, job.projectFields, targetDateSet, projectAliases, groupedByDate, processedHashes, sessionSets);
   });
 

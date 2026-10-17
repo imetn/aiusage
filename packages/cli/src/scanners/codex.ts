@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { calculateCost, type IngestBreakdown } from '@aiusage/shared';
-import { fileModifiedTs, normalizeModelName, runWithConcurrency, resolveProjectFields, type ProjectFields } from './utils.js';
+import { fileModifiedTs, keepFilesModifiedSince, normalizeModelName, runWithConcurrency, resolveProjectFields, type ProjectFields } from './utils.js';
 
 const FILE_CONCURRENCY = 16;
 const MAX_LINE_BYTES = 64 * 1024 * 1024; // 64 MB
@@ -105,7 +105,7 @@ export async function scanCodexDates(
   const baseDir = codexDir ?? join(homedir(), '.codex');
   const serviceTier = await detectCodexServiceTier(baseDir);
 
-  const sessionFiles = await collectSessionFiles(baseDir);
+  const sessionFiles = await keepFilesModifiedSince(await collectSessionFiles(baseDir), targetDateSet, path => path);
   if (sessionFiles.length === 0) {
     return new Map([...targetDateSet].map((targetDate) => [targetDate, []]));
   }

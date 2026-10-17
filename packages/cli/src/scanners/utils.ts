@@ -140,6 +140,28 @@ export function normalizeModelName(name: string): string {
   return name.replace(/-\d{8}$/, '');
 }
 
+/**
+ * 文件最后写入早于最早目标日期时不可能含目标日记录，跳过以免每次同步读遍全部历史；
+ * 留一天余量覆盖时区差。未指定日期时原样返回。
+ */
+export async function keepFilesModifiedSince<T>(
+  items: T[],
+  targetDates: Iterable<string> | undefined,
+  pathOf: (item: T) => string,
+): Promise<T[]> {
+  const dates = targetDates ? [...targetDates].sort() : [];
+  if (dates.length === 0) return items;
+  const cutoff = Date.parse(`${dates[0]}T00:00:00Z`) - 24 * 60 * 60 * 1000;
+  const keep = await Promise.all(items.map(async item => {
+    try {
+      return (await stat(pathOf(item))).mtimeMs >= cutoff;
+    } catch {
+      return false;
+    }
+  }));
+  return items.filter((_, i) => keep[i]);
+}
+
 // Pool-based 并发控制，避免同时打开过多文件句柄
 export async function runWithConcurrency<T>(
   items: T[],
