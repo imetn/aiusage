@@ -66,8 +66,10 @@ export async function handleIngest(request: Request, env: Env): Promise<Response
 
     const dayCostStatus = getWorstCostStatus(costStatuses);
 
-    // 先写入父记录，避免 breakdown 外键约束失败
-    await env.DB.prepare(`
+    // 每天的写入合并为一次 D1 batch：逐条 await 会让 30 天的批次触发上千次子请求而被 Worker 拒绝
+    // 父记录排在最前，避免 breakdown 外键约束失败
+    const statements: D1PreparedStatement[] = [];
+    statements.push(env.DB.prepare(`
       INSERT INTO daily_usage
         (device_id, usage_date, event_count, input_tokens, cached_input_tokens,
          cache_write_tokens, output_tokens, reasoning_output_tokens,
@@ -100,18 +102,16 @@ export async function handleIngest(request: Request, env: Env): Promise<Response
         'pending', 0,
         'pending', 0,
         now, now,
-      )
-      .run();
+      ));
 
     if (day.breakdowns.some(b => b.product === 'trae-cn' || b.product === 'trae-intl')) {
       // CLI 1.7.5 briefly stored both editions as `trae`. Once the same day is
       // re-uploaded with explicit editions, remove only that legacy bucket so
       // it cannot be counted twice. Other tools and partial imports stay intact.
-      await env.DB.prepare(
+      statements.push(env.DB.prepare(
         "DELETE FROM daily_usage_breakdown WHERE device_id = ? AND usage_date = ? AND product = 'trae'",
       )
-        .bind(tokenPayload.deviceId, day.usageDate)
-        .run();
+        .bind(tokenPayload.deviceId, day.usageDate));
     }
 
     for (const { breakdown: b, cost, cacheWrite5mTokens, cacheWrite1hTokens } of breakdownsWithCost) {
@@ -120,7 +120,7 @@ export async function handleIngest(request: Request, env: Env): Promise<Response
       const projectDisplay = b.projectDisplay ?? (isFullPath ? rawProject.split('/').filter(Boolean).pop() || 'unknown' : rawProject);
       const projectAlias = b.projectAlias ?? null;
 
-      await env.DB.prepare(`
+      statements.push(env.DB.prepare(`
         INSERT INTO daily_usage_breakdown
           (device_id, usage_date, provider, product, channel, model, project,
            project_display, project_alias,
@@ -157,43 +157,38 @@ export async function handleIngest(request: Request, env: Env): Promise<Response
             cache_write_1h_tokens: cacheWrite1hTokens,
           }),
           now, now,
-        )
-        .run();
+        ));
     }
 
-    await replaceActivityMetrics(env, tokenPayload.deviceId, day.usageDate, day.activity?.items ?? [], now);
-
-    // 计算 top project / model 并回填 daily_usage
-    const topProject = await env.DB.prepare(`
-      SELECT COALESCE(project_alias, project_display) as project, SUM(estimated_cost_usd) as total_cost
-      FROM daily_usage_breakdown
-      WHERE device_id = ? AND usage_date = ?
-      GROUP BY COALESCE(project_alias, project_display) ORDER BY total_cost DESC LIMIT 1
-    `).bind(tokenPayload.deviceId, day.usageDate)
-      .first<{ project: string; total_cost: number }>();
-
-    const topModel = await env.DB.prepare(`
-      SELECT model, SUM(estimated_cost_usd) as total_cost
-      FROM daily_usage_breakdown
-      WHERE device_id = ? AND usage_date = ?
-      GROUP BY model ORDER BY total_cost DESC LIMIT 1
-    `).bind(tokenPayload.deviceId, day.usageDate)
-      .first<{ model: string; total_cost: number }>();
-
-    await env.DB.prepare(`
+    // 回填 top project / model
+    statements.push(env.DB.prepare(`
       UPDATE daily_usage
-      SET top_project_by_cost = ?, top_project_cost_usd = ?,
-          top_model_by_cost = ?, top_model_cost_usd = ?,
-          updated_at = ?
-      WHERE device_id = ? AND usage_date = ?
-    `)
-      .bind(
-        topProject?.project ?? 'unknown', topProject?.total_cost ?? 0,
-        topModel?.model ?? 'unknown', topModel?.total_cost ?? 0,
-        now,
-        tokenPayload.deviceId, day.usageDate,
-      )
-      .run();
+      SET top_project_by_cost = COALESCE((
+            SELECT COALESCE(project_alias, project_display) FROM daily_usage_breakdown
+            WHERE device_id = ?1 AND usage_date = ?2
+            GROUP BY COALESCE(project_alias, project_display) ORDER BY SUM(estimated_cost_usd) DESC LIMIT 1
+          ), 'unknown'),
+          top_project_cost_usd = COALESCE((
+            SELECT SUM(estimated_cost_usd) AS total_cost FROM daily_usage_breakdown
+            WHERE device_id = ?1 AND usage_date = ?2
+            GROUP BY COALESCE(project_alias, project_display) ORDER BY total_cost DESC LIMIT 1
+          ), 0),
+          top_model_by_cost = COALESCE((
+            SELECT model FROM daily_usage_breakdown
+            WHERE device_id = ?1 AND usage_date = ?2
+            GROUP BY model ORDER BY SUM(estimated_cost_usd) DESC LIMIT 1
+          ), 'unknown'),
+          top_model_cost_usd = COALESCE((
+            SELECT SUM(estimated_cost_usd) AS total_cost FROM daily_usage_breakdown
+            WHERE device_id = ?1 AND usage_date = ?2
+            GROUP BY model ORDER BY total_cost DESC LIMIT 1
+          ), 0),
+          updated_at = ?3
+      WHERE device_id = ?1 AND usage_date = ?2
+    `).bind(tokenPayload.deviceId, day.usageDate, now));
+
+    await env.DB.batch(statements);
+    await replaceActivityMetrics(env, tokenPayload.deviceId, day.usageDate, day.activity?.items ?? [], now);
 
     costSummary[day.usageDate] = {
       estimatedCostUsd: Math.round(dayTotalCost * 10000) / 10000,
@@ -219,9 +214,10 @@ async function replaceActivityMetrics(
   now: string,
 ): Promise<void> {
   try {
-    await env.DB.prepare('DELETE FROM daily_activity_breakdown WHERE device_id = ? AND usage_date = ?')
-      .bind(deviceId, usageDate)
-      .run();
+    const statements = [
+      env.DB.prepare('DELETE FROM daily_activity_breakdown WHERE device_id = ? AND usage_date = ?')
+        .bind(deviceId, usageDate),
+    ];
 
     for (const item of items) {
       const count = Math.max(0, Math.floor(Number(item.count ?? 0)));
@@ -230,7 +226,7 @@ async function replaceActivityMetrics(
       const isFullPath = rawProject.startsWith('/') || /^[A-Z]:\\/i.test(rawProject);
       const projectDisplay = item.projectDisplay ?? (isFullPath ? rawProject.split('/').filter(Boolean).pop() || 'unknown' : rawProject);
 
-      await env.DB.prepare(`
+      statements.push(env.DB.prepare(`
         INSERT INTO daily_activity_breakdown
           (device_id, usage_date, provider, product, source, project,
            project_display, project_alias, kind, name, confidence, event_count,
@@ -252,9 +248,9 @@ async function replaceActivityMetrics(
           count,
           now,
           now,
-        )
-        .run();
+        ));
     }
+    await env.DB.batch(statements);
   } catch (error) {
     if (String(error).includes('daily_activity_breakdown')) return;
     throw error;
