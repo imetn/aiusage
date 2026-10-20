@@ -82,6 +82,7 @@ describe('buildActivityReport', () => {
       dates: ['2026-06-24'],
       codexDir,
       claudeProjectsDirs: [join(tmpDir, 'missing-claude')],
+      antigravityDir: join(tmpDir, 'missing-antigravity'),
     });
 
     expect(report.totals.exactCount).toBe(4);
@@ -168,6 +169,7 @@ describe('buildActivityReport', () => {
       dates: ['2026-06-24'],
       codexDir: join(tmpDir, 'missing-codex'),
       claudeProjectsDirs: [claudeProjects],
+      antigravityDir: join(tmpDir, 'missing-antigravity'),
     });
 
     expect(report.totals.exactCount).toBe(4);
@@ -179,6 +181,39 @@ describe('buildActivityReport', () => {
     expect(report.byKind.find(row => row.key === 'task')?.count).toBe(1);
     expect(report.topSkills[0].label).toBe('security-review (anthropic/claude-code)');
     expect(report.topAgents[0].label).toBe('审计 CLI 指标 (anthropic/claude-code)');
+  });
+
+  it('counts Antigravity user inputs and tool calls without retaining content or args', async () => {
+    const antigravityDir = join(tmpDir, 'antigravity');
+    const transcript = join(antigravityDir, 'brain', 'session-a', '.system_generated', 'logs', 'transcript.jsonl');
+    await writeJsonl(transcript, [
+      { type: 'USER_INPUT', status: 'DONE', created_at: '2026-06-24T12:00:00.000Z', content: 'private prompt' },
+      {
+        type: 'MODEL_RESPONSE', status: 'DONE', created_at: '2026-06-24T12:00:05.000Z',
+        tool_calls: [
+          { name: 'view_file', args: { path: '/private/file' } },
+          { name: 'invoke_subagent', args: { task: 'private task' } },
+        ],
+      },
+      { type: 'USER_INPUT', status: 'ERROR', created_at: '2026-06-24T12:01:00.000Z' },
+    ]);
+
+    const { buildActivityReport } = await import('../activity.js');
+    const report = await buildActivityReport('today', {
+      dates: ['2026-06-24'],
+      codexDir: join(tmpDir, 'missing-codex'),
+      claudeProjectsDirs: [join(tmpDir, 'missing-claude')],
+      antigravityDir,
+    });
+
+    expect(report.totals.userMessageCount).toBe(1);
+    expect(report.totals.exactCount).toBe(2);
+    expect(report.totals.sessionsScanned).toBe(1);
+    expect(report.byKind.find(row => row.key === 'tool_call')?.count).toBe(1);
+    expect(report.byKind.find(row => row.key === 'agent_call')?.count).toBe(1);
+    expect(report.topTools.find(row => row.label === 'view_file (google/antigravity)')?.count).toBe(1);
+    expect(JSON.stringify(report.items)).not.toContain('private prompt');
+    expect(JSON.stringify(report.items)).not.toContain('/private/file');
   });
 
   it('counts only human Claude Code prompts and their typed characters', async () => {
@@ -215,6 +250,7 @@ describe('buildActivityReport', () => {
       dates: ['2026-06-24'],
       codexDir: join(tmpDir, 'missing-codex'),
       claudeProjectsDirs: [claudeProjects],
+      antigravityDir: join(tmpDir, 'missing-antigravity'),
     });
 
     expect(report.totals.userMessageCount).toBe(2);
@@ -253,6 +289,7 @@ describe('buildActivityReport', () => {
       dates: ['2026-06-24'],
       codexDir,
       claudeProjectsDirs: [join(tmpDir, 'missing-claude')],
+      antigravityDir: join(tmpDir, 'missing-antigravity'),
     });
 
     expect(report.totals.userMessageCount).toBe(1);

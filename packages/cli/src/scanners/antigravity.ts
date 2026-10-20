@@ -22,6 +22,12 @@ interface AntigravityArtifactMetadata {
   updatedAt?: string;
 }
 
+interface AntigravityTranscriptRecord {
+  type?: string;
+  status?: string;
+  created_at?: string | number;
+}
+
 export async function scanAntigravityDates(
   targetDates: string[],
   baseDir?: string,
@@ -31,35 +37,90 @@ export async function scanAntigravityDates(
   const grouped = initDateMap(dates);
   const sessionDates = new Map<string, Date>();
 
+  const transcriptEvents = await collectTranscriptEvents(join(dir, 'brain'));
+
   await collectBrainSessionDates(join(dir, 'brain'), sessionDates);
   await collectBrowserSessionDates(join(dir, 'browser_recordings'), sessionDates);
 
-  if (sessionDates.size === 0) return emptyResult(dates);
+  if (sessionDates.size === 0 && transcriptEvents.size === 0) return emptyResult(dates);
+
+  for (const [sessionId, timestamps] of transcriptEvents) {
+    for (const timestamp of timestamps) {
+      const dayMap = grouped.get(dateKey(timestamp));
+      if (!dayMap) continue;
+      accumulateAntigravityEvent(dayMap);
+    }
+
+    // A transcript provides finer-grained events for this session, so do not
+    // also count its artifact/browser metadata fallback.
+    sessionDates.delete(sessionId);
+  }
 
   for (const timestamp of sessionDates.values()) {
     const dayMap = grouped.get(dateKey(timestamp));
     if (!dayMap) continue;
-
-    accumulate(
-      dayMap,
-      'unknown|unknown',
-      {
-        provider: 'google',
-        product: 'antigravity',
-        channel: 'ide',
-        model: 'unknown',
-        project: 'unknown',
-        inputTokens: 0,
-        cachedInputTokens: 0,
-        cacheWriteTokens: 0,
-        outputTokens: 0,
-        reasoningOutputTokens: 0,
-      },
-      { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 },
-    );
+    accumulateAntigravityEvent(dayMap);
   }
 
   return finalize(grouped);
+}
+
+async function collectTranscriptEvents(dir: string): Promise<Map<string, Date[]>> {
+  const result = new Map<string, Date[]>();
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return result;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const filePath = join(dir, entry.name, '.system_generated', 'logs', 'transcript.jsonl');
+    let content: string;
+    try {
+      content = await readFile(filePath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    const timestamps: Date[] = [];
+    for (const line of content.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      let record: AntigravityTranscriptRecord;
+      try {
+        record = JSON.parse(line) as AntigravityTranscriptRecord;
+      } catch {
+        continue;
+      }
+      if (record.type !== 'USER_INPUT' || record.status === 'ERROR') continue;
+      const timestamp = parseTs(record.created_at);
+      if (timestamp) timestamps.push(timestamp);
+    }
+    if (timestamps.length > 0) result.set(entry.name, timestamps);
+  }
+
+  return result;
+}
+
+function accumulateAntigravityEvent(dayMap: Map<string, IngestBreakdown>): void {
+  accumulate(
+    dayMap,
+    'unknown|unknown',
+    {
+      provider: 'google',
+      product: 'antigravity',
+      channel: 'ide',
+      model: 'unknown',
+      project: 'unknown',
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+    },
+    { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+  );
 }
 
 async function collectBrainSessionDates(dir: string, sessionDates: Map<string, Date>): Promise<void> {

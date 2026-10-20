@@ -30,8 +30,8 @@ export type ActivityKind =
 
 export interface ActivityItem {
   usageDate: string;
-  provider: 'openai' | 'anthropic';
-  product: 'codex' | 'claude-code';
+  provider: 'openai' | 'anthropic' | 'google';
+  product: 'codex' | 'claude-code' | 'antigravity';
   source: string;
   project: string;
   projectDisplay?: string;
@@ -88,6 +88,7 @@ interface BuildActivityReportOptions {
   projectAliases?: Record<string, string>;
   codexDir?: string;
   claudeProjectsDirs?: string[];
+  antigravityDir?: string;
 }
 
 interface ScanStats {
@@ -178,11 +179,12 @@ export async function buildActivityReport(
   options: BuildActivityReportOptions = {},
 ): Promise<ActivityReport> {
   const targetDates = options.dates ? new Set(options.dates) : undefined;
-  const [codex, claude] = await Promise.all([
+  const [codex, claude, antigravity] = await Promise.all([
     scanCodexActivity(targetDates, options),
     scanClaudeActivity(targetDates, options),
+    scanAntigravityActivity(targetDates, options),
   ]);
-  const items = [...codex.items, ...claude.items].sort(sortActivityItems);
+  const items = [...codex.items, ...claude.items, ...antigravity.items].sort(sortActivityItems);
   const requestedDates = options.dates?.slice().sort();
   const itemDates = [...new Set(items.map(item => item.usageDate))].sort();
   const reportDates = requestedDates ?? itemDates;
@@ -207,10 +209,10 @@ export async function buildActivityReport(
     totals: {
       exactCount: sumByConfidence(items, 'exact'),
       proxyCount: sumByConfidence(items, 'proxy'),
-      userMessageCount: codex.stats.userMessages.size + claude.stats.userMessages.size,
+      userMessageCount: codex.stats.userMessages.size + claude.stats.userMessages.size + antigravity.stats.userMessages.size,
       userMessageChars: sumKind(items, 'user_message_chars'),
-      filesScanned: codex.stats.filesScanned + claude.stats.filesScanned,
-      sessionsScanned: new Set([...codex.stats.sessions, ...claude.stats.sessions]).size,
+      filesScanned: codex.stats.filesScanned + claude.stats.filesScanned + antigravity.stats.filesScanned,
+      sessionsScanned: new Set([...codex.stats.sessions, ...claude.stats.sessions, ...antigravity.stats.sessions]).size,
     },
     daily,
     bySource: summarize(items, item => item.source, item => item.source),
@@ -236,11 +238,101 @@ export async function buildActivityReport(
     items,
     notes: [
       'Claude Code 的 Skill/Agent 来自结构化 tool_use，口径为 exact。',
+      'Antigravity 的用户消息和工具调用来自本地 transcript，不上传消息正文或工具参数。',
       'Codex 的 skill_proxy 来自命令中读取 SKILL.md 的痕迹，只能表示代理信号。',
       '用户消息只计人工输入：剔除系统注入、子代理、自动化与定时任务；字数为去空白字符数，Claude Code 不含粘贴块。',
       'sync 会上传按日聚合后的 activity 指标，不上传原始消息内容。',
     ],
   };
+}
+
+interface AntigravityActivityRecord {
+  type?: string;
+  status?: string;
+  created_at?: string;
+  tool_calls?: Array<{ name?: string }>;
+}
+
+async function scanAntigravityActivity(
+  targetDates: Set<string> | undefined,
+  options: BuildActivityReportOptions,
+): Promise<ScanResult> {
+  const baseDir = options.antigravityDir ?? join(homedir(), '.gemini', 'antigravity');
+  const acc = createAccumulator(targetDates, options.projectAliases);
+  const files: string[] = [];
+  await collectAntigravityTranscripts(join(baseDir, 'brain'), files);
+  acc.stats.filesScanned = files.length;
+  await runWithConcurrency(files, FILE_CONCURRENCY, async filePath => {
+    await processAntigravityTranscript(filePath, acc);
+  });
+  return finalizeActivity(acc);
+}
+
+async function processAntigravityTranscript(filePath: string, acc: ActivityAccumulator): Promise<void> {
+  let fh;
+  try {
+    fh = await open(filePath, 'r');
+  } catch {
+    return;
+  }
+  const sessionId = filePath.split('/').at(-4) ?? basename(filePath, '.jsonl');
+  const projectFields: ProjectFields = { project: 'unknown', projectDisplay: 'unknown' };
+  acc.stats.sessions.add(`antigravity:${sessionId}`);
+
+  try {
+    const rl = createInterface({ input: fh.createReadStream({ encoding: 'utf-8' }), crlfDelay: Infinity });
+    let lineNumber = 0;
+    for await (const line of rl) {
+      lineNumber += 1;
+      if (!line || Buffer.byteLength(line) > MAX_LINE_BYTES) continue;
+      let record: AntigravityActivityRecord;
+      try {
+        record = JSON.parse(line) as AntigravityActivityRecord;
+      } catch {
+        continue;
+      }
+      const ts = parseTs(record.created_at);
+      if (!ts || record.status === 'ERROR') continue;
+      const usageDate = dateKey(ts);
+      if (!acceptsDate(acc, usageDate)) continue;
+
+      if (record.type === 'USER_INPUT') {
+        addUserMessage(acc, {
+          provider: 'google', product: 'antigravity', usageDate, projectFields, sessionId,
+          // Antigravity transcripts do not separate typed text from injected context, so only the count is kept
+          timestamp: record.created_at ?? '', chars: 0, fallbackKey: `${filePath}:${lineNumber}`,
+        });
+      }
+      for (const [toolIndex, toolCall] of (record.tool_calls ?? []).entries()) {
+        const name = stringValue(toolCall.name) ?? 'unknown';
+        addActivity(acc, {
+          usageDate, provider: 'google', product: 'antigravity', projectFields, sessionId,
+          kind: name === 'invoke_subagent' ? 'agent_call' : 'tool_call',
+          name, confidence: 'exact',
+          dedupeKey: `antigravity:${sessionId}:${lineNumber}:${toolIndex}:${name}`,
+        });
+      }
+    }
+  } finally {
+    await fh.close();
+  }
+}
+
+async function collectAntigravityTranscripts(dir: string, result: string[]): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const filePath = join(dir, entry.name, '.system_generated', 'logs', 'transcript.jsonl');
+    try {
+      await open(filePath, 'r').then(file => file.close());
+      result.push(filePath);
+    } catch { /* no transcript for this session */ }
+  }
 }
 
 export function renderActivityReport(report: ActivityReport, opts: { emoji: boolean; detail: boolean }): string {
@@ -727,8 +819,8 @@ function addActivity(
   acc: ActivityAccumulator,
   input: {
     usageDate: string;
-    provider: 'openai' | 'anthropic';
-    product: 'codex' | 'claude-code';
+    provider: 'openai' | 'anthropic' | 'google';
+    product: 'codex' | 'claude-code' | 'antigravity';
     projectFields: ProjectFields;
     sessionId: string;
     kind: ActivityKind;
@@ -773,8 +865,8 @@ function addActivity(
 function addUserMessage(
   acc: ActivityAccumulator,
   input: {
-    provider: 'openai' | 'anthropic';
-    product: 'codex' | 'claude-code';
+    provider: 'openai' | 'anthropic' | 'google';
+    product: 'codex' | 'claude-code' | 'antigravity';
     usageDate: string;
     projectFields: ProjectFields;
     sessionId: string;

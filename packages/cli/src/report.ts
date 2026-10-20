@@ -440,8 +440,28 @@ async function discoverAntigravityDates(dates: Set<string>): Promise<void> {
   const home = homedir();
   const brainFiles: string[] = [];
   const browserFiles: string[] = [];
+  const transcriptFiles: string[] = [];
   await walkForFiles(join(home, '.gemini', 'antigravity', 'brain'), '.json', brainFiles);
+  await walkForFiles(join(home, '.gemini', 'antigravity', 'brain'), '.jsonl', transcriptFiles);
   await walkForFiles(join(home, '.gemini', 'antigravity', 'browser_recordings'), '.json', browserFiles);
+
+  for (const filePath of transcriptFiles) {
+    if (basename(filePath) !== 'transcript.jsonl') continue;
+    const content = await safeReadUtf8(filePath);
+    if (!content) continue;
+    for (const line of content.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      let data: { type?: string; status?: string; created_at?: string | number };
+      try {
+        data = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (data.type !== 'USER_INPUT' || data.status === 'ERROR') continue;
+      const ts = parseTs(data.created_at);
+      if (ts) dates.add(dateKey(ts));
+    }
+  }
 
   for (const filePath of brainFiles) {
     if (basename(filePath) !== 'task.md.metadata.json') continue;

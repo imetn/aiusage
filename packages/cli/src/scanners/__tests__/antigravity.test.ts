@@ -20,6 +20,11 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(value, null, 2));
 }
 
+async function writeJsonl(path: string, values: unknown[]): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, values.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('\n'));
+}
+
 describe('scanAntigravityDates', () => {
   it('counts one event per Antigravity session ID across brain and browser metadata', async () => {
     const baseDir = join(tmpDir, 'antigravity');
@@ -97,6 +102,28 @@ describe('scanAntigravityDates', () => {
         reasoningOutputTokens: 0,
       },
     ]);
+  });
+
+  it('counts user inputs from transcripts and does not duplicate session metadata', async () => {
+    const baseDir = join(tmpDir, 'antigravity');
+    const transcript = join(baseDir, 'brain', 'session-a', '.system_generated', 'logs', 'transcript.jsonl');
+
+    await writeJson(join(baseDir, 'brain', 'session-a', 'task.md.metadata.json'), {
+      updatedAt: '2026-02-10T18:00:00.000Z',
+    });
+    await writeJsonl(transcript, [
+      { type: 'USER_INPUT', status: 'DONE', created_at: '2026-02-10T08:00:00.000Z' },
+      '{ malformed',
+      { type: 'TOOL_CALL', status: 'DONE', created_at: '2026-02-10T08:01:00.000Z' },
+      { type: 'USER_INPUT', status: 'DONE', created_at: '2026-02-10T09:00:00.000Z' },
+      { type: 'USER_INPUT', status: 'ERROR', created_at: '2026-02-10T10:00:00.000Z' },
+      { type: 'USER_INPUT', status: 'DONE', created_at: '2026-02-11T09:00:00.000Z' },
+    ]);
+
+    const result = await scanAntigravityDates(['2026-02-10', '2026-02-11'], baseDir);
+
+    expect(result.get('2026-02-10')?.[0]?.eventCount).toBe(2);
+    expect(result.get('2026-02-11')?.[0]?.eventCount).toBe(1);
   });
 
   it('returns empty results when no Antigravity metadata exists', async () => {

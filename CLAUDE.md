@@ -91,7 +91,10 @@ CLI 扫描器位于 `packages/cli/src/scanners/`，每个 AI 工具一个文件�
 
 部分 scanner 的数据源不提供 token 信息，仅输出 eventCount，token 和费用为 0，这是预期行为：
 - **copilot-vscode** — VS Code 日志和 chatSessions JSON 中无 token 字段（`~/.copilot/session-state/` 的 token 数据属于 Copilot CLI，由 `copilot.ts` 扫描）
-- **antigravity** — 本地仅存时间戳和文档内容，token 统计在 Google 服务端，protobuf 文件中亦无 token 相关数据
+- **antigravity** — 本地 transcript 可提供逐次用户输入及时间戳，但不提供 token；scanner 优先按 `USER_INPUT` 计数，并以 artifact/browser metadata 作为会话级回退
+
+Activity scanner 还会从 Antigravity transcript 聚合用户消息、工具调用和
+subagent 调用；只上传按日计数、工具名和来源，不上传提示词正文或工具参数。
 
 ## 定价计算
 
