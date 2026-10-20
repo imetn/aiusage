@@ -41,7 +41,7 @@ pnpm --filter @aiusage/cli build      # 构建 CLI
 pnpm --filter @aiusage/cli test       # 测试 CLI（vitest）
 pnpm --filter @aiusage/dashboard dev  # Dashboard 开发服务器
 pnpm --filter @aiusage/dashboard build # 构建 Dashboard
-pnpm --filter @aiusage/worker deploy  # 部署 Worker（含预编译）
+pnpm --filter @aiusage/worker run deploy  # 部署 Worker（含预编译）
 ```
 
 ## 代码规范
