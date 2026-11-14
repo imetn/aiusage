@@ -10,6 +10,30 @@ import type { ProductPricing } from '../types.js';
 export const anthropic: Record<string, ProductPricing> = {
   'claude-code': {
     models: {
+      // https://platform.claude.com/docs/en/about-claude/pricing (2026-11-14)
+      'claude-fable-5-2': {
+        currency: 'USD',
+        effective_from: '2026-11-09',
+        input_per_million: 8,
+        output_per_million: 40,
+        cache_write_5m_per_million: 10,
+        cache_write_1h_per_million: 16,
+        cached_input_per_million: 0.2,
+      },
+      // https://platform.claude.com/docs/en/models/haiku-5-5/overview (2026-11-14)
+      'claude-haiku-5-5': {
+        currency: 'USD',
+        effective_from: '2026-10-07',
+        input_per_million: 0.1,
+        output_per_million: 0.5,
+        cache_write_5m_per_million: 0.125,
+        cache_write_1h_per_million: 0.2,
+        cached_input_per_million: 0.01,
+        tiers: [
+          { threshold: 100_000, input_per_million: 0.1, output_per_million: 0.5, cached_input_per_million: 0.01, cache_write_5m_per_million: 0.125, cache_write_1h_per_million: 0.2 },
+          { input_per_million: 0.5, output_per_million: 2.5, cached_input_per_million: 0.05, cache_write_5m_per_million: 0.625, cache_write_1h_per_million: 1 },
+        ],
+      },
       // https://platform.claude.com/docs/en/about-claude/pricing (2026-10-20)
       'claude-sonnet-5-5': {
         currency: 'USD',

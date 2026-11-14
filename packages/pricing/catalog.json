@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-20-gpt-6-1-sol-sonnet-5-5-v1",
+  "version": "2026-11-14-terra-fable-haiku-gemini-lite-v1",
   "fx": {
     "CNY": 7.2
   },
@@ -22,6 +22,41 @@
     "anthropic": {
       "claude-code": {
         "models": {
+          "claude-fable-5-2": {
+            "currency": "USD",
+            "effective_from": "2026-11-09",
+            "input_per_million": 8,
+            "output_per_million": 40,
+            "cache_write_5m_per_million": 10,
+            "cache_write_1h_per_million": 16,
+            "cached_input_per_million": 0.2
+          },
+          "claude-haiku-5-5": {
+            "currency": "USD",
+            "effective_from": "2026-10-07",
+            "input_per_million": 0.1,
+            "output_per_million": 0.5,
+            "cache_write_5m_per_million": 0.125,
+            "cache_write_1h_per_million": 0.2,
+            "cached_input_per_million": 0.01,
+            "tiers": [
+              {
+                "threshold": 100000,
+                "input_per_million": 0.1,
+                "output_per_million": 0.5,
+                "cached_input_per_million": 0.01,
+                "cache_write_5m_per_million": 0.125,
+                "cache_write_1h_per_million": 0.2
+              },
+              {
+                "input_per_million": 0.5,
+                "output_per_million": 2.5,
+                "cached_input_per_million": 0.05,
+                "cache_write_5m_per_million": 0.625,
+                "cache_write_1h_per_million": 1
+              }
+            ]
+          },
           "claude-sonnet-5-5": {
             "currency": "USD",
             "input_per_million": 2,
@@ -180,6 +215,29 @@
     "openai": {
       "codex": {
         "models": {
+          "gpt-6.1-terra": {
+            "currency": "USD",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates; cache write uses the 30-minute rate",
+            "input_per_million": 1,
+            "cached_input_per_million": 0.05,
+            "cache_write_per_million": 1.25,
+            "output_per_million": 5,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 1,
+                "cached_input_per_million": 0.05,
+                "cache_write_per_million": 1.25,
+                "output_per_million": 5
+              },
+              {
+                "input_per_million": 2,
+                "cached_input_per_million": 0.1,
+                "cache_write_per_million": 2.5,
+                "output_per_million": 7.5
+              }
+            ]
+          },
           "gpt-6.1-sol": {
             "currency": "USD",
             "notes": "prompts over 272K input tokens bill the full request at long-context rates",
@@ -739,6 +797,12 @@
       },
       "gemini-cli": {
         "models": {
+          "gemini-3.5-flash-lite": {
+            "currency": "USD",
+            "input_per_million": 0.3,
+            "output_per_million": 2.5,
+            "cached_input_per_million": 0.03
+          },
           "gemini-3.5-flash": {
             "currency": "USD",
             "input_per_million": 1.5,

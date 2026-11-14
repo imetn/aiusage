@@ -15,6 +15,19 @@ export const openai: Record<string, ProductPricing> = {
   codex: {
     models: {
       // ── GPT-6 系列 ──
+      // https://developers.openai.com/api/docs/models/gpt-6.1-terra (2026-11-14)
+      'gpt-6.1-terra': {
+        currency: 'USD',
+        notes: 'prompts over 272K input tokens bill the full request at long-context rates; cache write uses the 30-minute rate',
+        input_per_million: 1,
+        cached_input_per_million: 0.05,
+        cache_write_per_million: 1.25,
+        output_per_million: 5,
+        tiers: [
+          { threshold: 272_000, input_per_million: 1, cached_input_per_million: 0.05, cache_write_per_million: 1.25, output_per_million: 5 },
+          { input_per_million: 2, cached_input_per_million: 0.1, cache_write_per_million: 2.5, output_per_million: 7.5 },
+        ],
+      },
       // https://developers.openai.com/api/docs/models/gpt-6.1-sol (2026-10-20)
       'gpt-6.1-sol': {
         currency: 'USD',

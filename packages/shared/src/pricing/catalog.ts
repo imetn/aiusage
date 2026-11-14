@@ -11,7 +11,7 @@ import { sourcegraph } from './data/sourcegraph.js';
 import { xai } from './data/xai.js';
 import { inflection, cursor, droid, opencode } from './data/placeholders.js';
 
-export const PRICING_VERSION = '2026-10-20-gpt-6-1-sol-sonnet-5-5-v1';
+export const PRICING_VERSION = '2026-11-14-terra-fable-haiku-gemini-lite-v1';
 
 /**
  * 模型别名（精确匹配优先于前缀回退）。

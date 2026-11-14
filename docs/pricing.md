@@ -138,3 +138,18 @@ GPT-6.1 Sol 单请求输入超过 272K 时，输入与缓存费率为 2 倍，�
 来源：[OpenAI 模型卡](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[Anthropic 定价](https://platform.claude.com/docs/en/about-claude/pricing)。
 
 未给内部模型名或第三方路由模型套用不确定费率。DeepSeek 历史记录涉及版本、峰谷时间与实际服务方，当前官方价格不能直接当作旧记录的价格。
+
+## 2026-11-14 核对
+
+| 模型 | 输入 | 缓存读取 | 缓存写入 | 输出 |
+| --- | ---: | ---: | ---: | ---: |
+| GPT-6.1 Terra（≤272K 输入） | 1 | 0.05 | 1.25（30 分钟） | 5 |
+| GPT-6.1 Terra（>272K 输入） | 2 | 0.1 | 2.5（30 分钟） | 7.5 |
+| Claude Fable 5.2 | 8 | 0.2 | 10（5 分钟）/ 16（1 小时） | 40 |
+| Claude Haiku 5.5（≤100K 输入） | 0.1 | 0.01 | 0.125（5 分钟）/ 0.2（1 小时） | 0.5 |
+| Claude Haiku 5.5（>100K 输入） | 0.5 | 0.05 | 0.625（5 分钟）/ 1（1 小时） | 2.5 |
+| Gemini 3.5 Flash-Lite | 0.3 | 0.03 | — | 2.5 |
+
+单位为 USD / 百万 Token。已标注档位的 Terra Fast/Priority 与 Fable 5.2 Fast 均按标准价 2 倍计算。Terra 日志只有缓存写入总量时使用 30 分钟价。
+
+来源：[OpenAI Terra 模型卡](https://developers.openai.com/api/docs/models/gpt-6.1-terra)、[Anthropic 定价](https://platform.claude.com/docs/en/about-claude/pricing)、[Google 定价](https://aistudio.google.com/docs/pricing#gemini-3.5-flash-lite)。

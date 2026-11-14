@@ -5,6 +5,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "public/**", "catalog.json"]
     },
+    "@aiusage/cli#build": {
+      "dependsOn": ["^build", "@aiusage/pricing#build"],
+      "outputs": ["dist/**", "pricing-catalog.json"]
+    },
     "dev": {
       "persistent": true,
       "cache": false

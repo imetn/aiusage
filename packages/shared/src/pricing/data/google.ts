@@ -15,6 +15,13 @@ export const google: Record<string, ProductPricing> = {
   'gemini-cli': {
     models: {
       // ── Gemini 3.x 系列 ──
+      // https://aistudio.google.com/docs/pricing#gemini-3.5-flash-lite (2026-11-14)
+      'gemini-3.5-flash-lite': {
+        currency: 'USD',
+        input_per_million: 0.3,
+        output_per_million: 2.5,
+        cached_input_per_million: 0.03,
+      },
       'gemini-3.5-flash': {
         currency: 'USD',
         input_per_million: 1.5,

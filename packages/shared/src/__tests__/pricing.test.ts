@@ -486,3 +486,41 @@ describe('October 2026 pricing gaps', () => {
     expect(r.estimatedCostUsd).toBeCloseTo(18.6, 4);
   });
 });
+
+describe('November 2026 pricing gaps', () => {
+  it.each([
+    [250_000, 'gpt-6.1-terra', 0.7631, 0],
+    [250_100, 'gpt-6.1-terra', 1.2764, 1],
+    [250_100, 'gpt-6.1-terra-fast', 2.5528, 1],
+  ])('prices Terra at %i uncached input tokens with model ID %s', (inputTokens, model, expectedCost, tier) => {
+    expect(calculateCost('openai', 'codex', model, {
+      inputTokens, cachedInputTokens: 12_000, cacheWriteTokens: 10_000, outputTokens: 100_000,
+    })).toMatchObject({ costStatus: 'exact', estimatedCostUsd: expectedCost, matchedTierIndex: tier });
+  });
+
+  it.each([
+    ['claude-fable-5-2', 7.42],
+    ['claude-fable-5-2-fast', 14.84],
+  ])('prices %s with separate 5-minute and 1-hour cache writes', (model, expectedCost) => {
+    expect(calculateCost('anthropic', 'claude-code', model, {
+      inputTokens: 100_000, cachedInputTokens: 100_000, cacheWriteTokens: 200_000,
+      cacheWrite5mTokens: 100_000, cacheWrite1hTokens: 100_000, outputTokens: 100_000,
+    })).toMatchObject({ costStatus: 'exact', estimatedCostUsd: expectedCost });
+  });
+
+  it.each([
+    [70_000, 0.0186, 0],
+    [71_000, 0.0935, 1],
+  ])('prices Haiku with %i uncached tokens using total prompt length', (inputTokens, expectedCost, tier) => {
+    expect(calculateCost('anthropic', 'claude-code', 'claude-haiku-5-5', {
+      inputTokens, cachedInputTokens: 10_000, cacheWriteTokens: 20_000,
+      cacheWrite5mTokens: 10_000, cacheWrite1hTokens: 10_000, outputTokens: 16_500,
+    })).toMatchObject({ costStatus: 'exact', estimatedCostUsd: expectedCost, matchedTierIndex: tier });
+  });
+
+  it('uses the Flash-Lite rate instead of the Gemini 3.5 Flash rate', () => {
+    expect(calculateCost('google', 'gemini-cli', 'gemini-3.5-flash-lite', {
+      inputTokens: 1_000_000, cachedInputTokens: 1_000_000, cacheWriteTokens: 0, outputTokens: 1_000_000,
+    })).toMatchObject({ costStatus: 'exact', estimatedCostUsd: 2.83, resolvedModel: 'gemini-3.5-flash-lite' });
+  });
+});
