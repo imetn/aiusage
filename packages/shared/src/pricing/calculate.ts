@@ -24,9 +24,13 @@ const FAST_MULTIPLIERS: Record<string, number> = {
   'grok-4.7': 2,
 };
 
-type ServiceTierSuffix = 'fast' | 'priority' | 'ultrafast' | null;
+type ServiceTierSuffix = 'fast' | 'priority' | 'ultrafast' | 'batch' | null;
+
+const GPT_6_2_ULTRAFAST_PROMOTION_END = Date.parse('2027-03-01T00:00:00-08:00');
 
 const OPENAI_CODEX_TIER_MULTIPLIERS: Record<string, number> = {
+  'gpt-6.2-astra': 2,
+  'gpt-6.2-sol': 2,
   'gpt-6.1-sol': 2,
   'gpt-6.1-terra': 2,
   'gpt-6-astra': 2,
@@ -40,6 +44,10 @@ const OPENAI_CODEX_TIER_MULTIPLIERS: Record<string, number> = {
 };
 
 function splitServiceTierSuffix(model: string): { baseModel: string; tier: ServiceTierSuffix } {
+  const gpt62 = /^(gpt-6\.2-(?:astra|sol))-(ultrafast|batch)$/.exec(model);
+  if (gpt62) {
+    return { baseModel: gpt62[1], tier: gpt62[2] === 'ultrafast' ? 'ultrafast' : 'batch' };
+  }
   if (model === 'gpt-6.1-sol-ultrafast') {
     return { baseModel: model.replace(/-ultrafast$/, ''), tier: 'ultrafast' };
   }
@@ -61,7 +69,9 @@ function getServiceTierMultiplier(
   if (!tier) return 1;
 
   if (provider === 'openai' && product === 'codex') {
-    if (tier === 'ultrafast' && resolvedModel === 'gpt-6.1-sol') return 6;
+    // GPT-6.2 Ultrafast's date-dependent price is handled below.
+    if (tier === 'ultrafast') return 6;
+    if (tier === 'batch') return 0.5;
     if (tier === 'fast' && resolvedModel.startsWith('gpt-5.6-')) return 1;
     return OPENAI_CODEX_TIER_MULTIPLIERS[resolvedModel] ?? 1;
   }
@@ -139,6 +149,8 @@ export interface CalculateCostOptions {
   catalog?: PricingCatalog;
   /** 聚合 breakdown 包含的请求/事件数；用于按平均单请求 input 估算阶梯。 */
   requestCount?: number;
+  /** Unix milliseconds for a request, or the device-local YYYY-MM-DD for a daily aggregate. */
+  usageTime?: number | string;
 }
 
 export function calculateCost(
@@ -213,7 +225,20 @@ export function calculateCost(
   // 折算 currency → USD
   raw = toUsd(raw, pricing.currency, cat);
 
-  const finalCost = raw * getServiceTierMultiplier(provider, product, resolvedModel, tier);
+  let multiplier = getServiceTierMultiplier(provider, product, resolvedModel, tier);
+  if (provider === 'openai' && product === 'codex' && tier === 'ultrafast'
+      && (resolvedModel === 'gpt-6.2-astra' || resolvedModel === 'gpt-6.2-sol')) {
+    const { usageTime } = options;
+    if (typeof usageTime === 'string') {
+      multiplier = usageTime < '2027-03-01' ? 3 : 6;
+      // The device's local day can straddle the Pacific cutover on either date.
+      if (usageTime === '2027-02-28' || usageTime === '2027-03-01') costStatus = 'estimated';
+    } else {
+      multiplier = (usageTime ?? Date.now()) < GPT_6_2_ULTRAFAST_PROMOTION_END ? 3 : 6;
+      if (usageTime === undefined) costStatus = 'estimated';
+    }
+  }
+  const finalCost = raw * multiplier;
 
   return {
     estimatedCostUsd: Math.round(finalCost * 10000) / 10000,

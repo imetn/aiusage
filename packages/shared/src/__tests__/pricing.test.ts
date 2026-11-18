@@ -487,6 +487,38 @@ describe('October 2026 pricing gaps', () => {
   });
 });
 
+describe('GPT-6.2 pricing', () => {
+  it.each([
+    ['gpt-6.2-astra', 2.144, 4.088],
+    ['gpt-6.2-sol', 0.536, 1.022],
+  ])('prices %s across the 272K threshold including cache tokens', (model, shortCost, longCost) => {
+    const tokens = { inputTokens: 200_000, cachedInputTokens: 60_000, cacheWriteTokens: 12_000, outputTokens: 10_000 };
+    expect(calculateCost('openai', 'codex', model, tokens)).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: shortCost, matchedTierIndex: 0,
+    });
+    expect(calculateCost('openai', 'codex', model, { ...tokens, inputTokens: 200_001 })).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: longCost, matchedTierIndex: 1,
+    });
+  });
+
+  it.each([['fast', 2.4], ['priority', 2.4], ['batch', 0.6]])('prices Astra with the explicit %s suffix', (tier, cost) => {
+    expect(calculateCost('openai', 'codex', `gpt-6.2-astra-${tier}`, {
+      inputTokens: 100_000, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 10_000,
+    })).toMatchObject({ costStatus: 'exact', estimatedCostUsd: cost, resolvedModel: 'gpt-6.2-astra' });
+  });
+
+  it.each([['gpt-6.2-astra', 3.6, 7.2], ['gpt-6.2-sol', 0.9, 1.8]])(
+    'switches %s Ultrafast at midnight Pacific', (model, promotionCost, listCost) => {
+      const tokens = { inputTokens: 100_000, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 10_000 };
+      const price = (usageTime: number | string) => calculateCost('openai', 'codex', `${model}-ultrafast`, tokens, { usageTime });
+      expect(price(Date.parse('2027-03-01T07:59:59.999Z'))).toMatchObject({ costStatus: 'exact', estimatedCostUsd: promotionCost });
+      expect(price(Date.parse('2027-03-01T08:00:00.000Z'))).toMatchObject({ costStatus: 'exact', estimatedCostUsd: listCost });
+      expect(price('2027-02-28')).toMatchObject({ costStatus: 'estimated', estimatedCostUsd: promotionCost });
+      expect(price('2027-03-01')).toMatchObject({ costStatus: 'estimated', estimatedCostUsd: listCost });
+    },
+  );
+});
+
 describe('November 2026 pricing gaps', () => {
   it.each([
     [250_000, 'gpt-6.1-terra', 0.7631, 0],

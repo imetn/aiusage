@@ -5,7 +5,16 @@
 import { calculateCost as calculateSharedCost } from '@aiusage/shared';
 import type { CostCalcResult, IngestBreakdown } from '@aiusage/shared';
 
-export function calculateIngestBreakdownCost(breakdown: IngestBreakdown): CostCalcResult {
+export function calculateIngestBreakdownCost(
+  breakdown: IngestBreakdown,
+  usageDate?: string,
+  clientVersion?: string,
+): CostCalcResult {
+  // CLI 1.7.12 separated Codex reasoning from outputTokens in its uploads.
+  const [, major, minor, patch] = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(clientVersion ?? '') ?? [];
+  const separatesReasoning = Number(major) > 1
+    || (Number(major) === 1 && (Number(minor) > 7 || (Number(minor) === 7 && Number(patch) >= 12)));
+  const reasoning = breakdown.product === 'codex' && separatesReasoning ? (breakdown.reasoningOutputTokens ?? 0) : 0;
   const calculated = calculateSharedCost(
     breakdown.provider,
     breakdown.product,
@@ -16,9 +25,9 @@ export function calculateIngestBreakdownCost(breakdown: IngestBreakdown): CostCa
       cacheWriteTokens: breakdown.cacheWriteTokens,
       cacheWrite5mTokens: breakdown.cacheWrite5mTokens ?? breakdown.cacheWriteTokens,
       cacheWrite1hTokens: breakdown.cacheWrite1hTokens ?? 0,
-      outputTokens: breakdown.outputTokens,
+      outputTokens: breakdown.outputTokens + reasoning,
     },
-    { requestCount: breakdown.eventCount },
+    { requestCount: breakdown.eventCount, usageTime: usageDate },
   );
 
   const hasVendorReportedCost = breakdown.product === 'trae-intl' || breakdown.product === 'opencode';

@@ -194,6 +194,15 @@ describe('Trae CLI filters', () => {
 });
 
 describe('calculateBreakdownCost', () => {
+  it('uses the usage date and includes reasoning in a GPT-6.2 fallback estimate', async () => {
+    const { calculateBreakdownCost } = await import('../report.js');
+    const cost = calculateBreakdownCost({
+      provider: 'openai', product: 'codex', channel: 'cli', model: 'gpt-6.2-sol-ultrafast', project: 'unknown',
+      eventCount: 2, inputTokens: 100_000, cachedInputTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 50_000, reasoningOutputTokens: 50_000,
+    }, new Set(), undefined, '2026-11-18');
+    expect(cost).toBe(3.6);
+  });
   it('only trusts scanner cost when the selected catalog version matches', async () => {
     const { calculateBreakdownCost } = await import('../report.js');
     const { catalog } = await import('@aiusage/shared');

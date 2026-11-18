@@ -283,7 +283,7 @@ async function processCodexFile(
         // Reasoning is billed at the output rate, so pricing still uses the
         // inclusive raw Codex output total.
         outputTokens: tokens.output,
-      });
+      }, { usageTime: ts.getTime() });
       const exactEventCost = eventCost.costStatus === 'exact' ? eventCost.estimatedCostUsd : undefined;
       events.push({
         usageDate,

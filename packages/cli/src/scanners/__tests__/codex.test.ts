@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { calculateCost, PRICING_VERSION } from '@aiusage/shared';
@@ -65,6 +65,22 @@ afterEach(async () => {
 // ─── Fix 1: cached input is included in input_tokens — should NOT double-count ───
 
 describe('Fix 1: non-cached input cost formula', () => {
+  it('prices GPT-6.2 Ultrafast at the time of each request', async () => {
+    const timestamp = '2027-03-01T07:59:59.999Z';
+    const day = new Date(timestamp).toLocaleDateString('sv-SE');
+    const usage = { input: 100_000, cached: 0, output: 10_000, reasoning: 4_000 };
+    const sessionDir = join(tmpDir, 'sessions');
+    const filename = 'rollout-gpt62.jsonl';
+    await writeSession(sessionDir, filename,
+      tokenCountEvent(timestamp, usage, usage, 'gpt-6.2-sol-ultrafast'));
+    await utimes(join(sessionDir, filename), new Date(timestamp), new Date(timestamp));
+
+    const [result] = await scanCodex(day, tmpDir);
+    expect(result).toMatchObject({
+      model: 'gpt-6.2-sol-ultrafast', outputTokens: 6_000, reasoningOutputTokens: 4_000,
+      costUSD: 0.9, pricingVersion: PRICING_VERSION,
+    });
+  });
   it('stores inputTokens as (input - cached) to avoid double-counting', async () => {
     // Codex JSONL: input_tokens INCLUDES cached_input_tokens
     // last_token_usage: input=10000, cached=8000 → non-cached = 2000

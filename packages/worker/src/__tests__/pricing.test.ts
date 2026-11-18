@@ -24,6 +24,28 @@ describe('getPricingCatalog', () => {
 // ─── calculateCost: 基本计费 ───
 
 describe('calculateCost: 基本计费', () => {
+  it.each(['1.7.12', '1.8.3'])('uses the usage date and separate reasoning for Codex GPT-6.2 costs (%s)', (version) => {
+    const breakdown = {
+      provider: 'openai', product: 'codex', channel: 'cli', model: 'gpt-6.2-sol-ultrafast', project: 'unknown',
+      eventCount: 2, inputTokens: 100_000, cachedInputTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 50_000, reasoningOutputTokens: 50_000,
+    } as const;
+    expect(calculateIngestBreakdownCost(breakdown, '2026-11-18', version)).toMatchObject({
+      estimatedCostUsd: 3.6, costStatus: 'estimated',
+    });
+    expect(calculateIngestBreakdownCost(breakdown, '2027-03-02', version)).toMatchObject({
+      estimatedCostUsd: 7.2, costStatus: 'estimated',
+    });
+  });
+
+  it.each(['1.7.11', undefined])('keeps inclusive output on older or unidentified Codex uploads (%s)', (version) => {
+    const result = calculateIngestBreakdownCost({
+      provider: 'openai', product: 'codex', channel: 'cli', model: 'gpt-6.2-sol', project: 'unknown',
+      eventCount: 1, inputTokens: 100_000, cachedInputTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 100_000, reasoningOutputTokens: 50_000,
+    }, '2026-11-18', version);
+    expect(result.estimatedCostUsd).toBe(1.2);
+  });
   it('优先采用 scanner 按请求累计的精确成本', () => {
     const result = calculateIngestBreakdownCost({
       provider: 'openai',

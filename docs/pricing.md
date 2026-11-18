@@ -153,3 +153,16 @@ GPT-6.1 Sol 单请求输入超过 272K 时，输入与缓存费率为 2 倍，�
 单位为 USD / 百万 Token。已标注档位的 Terra Fast/Priority 与 Fable 5.2 Fast 均按标准价 2 倍计算。Terra 日志只有缓存写入总量时使用 30 分钟价。
 
 来源：[OpenAI Terra 模型卡](https://developers.openai.com/api/docs/models/gpt-6.1-terra)、[Anthropic 定价](https://platform.claude.com/docs/en/about-claude/pricing)、[Google 定价](https://aistudio.google.com/docs/pricing#gemini-3.5-flash-lite)。
+
+## 2026-11-18 核对
+
+| 模型 | 单次请求输入量 | 输入 | 缓存读取 | 缓存写入（30 分钟） | 输出 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| GPT-6.2 Astra | ≤272K | 8 | 0.40 | 10 | 40 |
+| GPT-6.2 Astra | >272K | 16 | 0.80 | 20 | 60 |
+| GPT-6.2 Sol | ≤272K | 2 | 0.10 | 2.50 | 10 |
+| GPT-6.2 Sol | >272K | 4 | 0.20 | 5 | 15 |
+
+单位为 USD / 百万 Token。带费率后缀的模型按同一上下文档位乘倍率，Fast/Priority 为 2 倍，Batch 为 0.5 倍，Ultrafast 在 2027-03-01 00:00（美国太平洋时间）从 3 倍变为 6 倍。逐请求按时间戳切价，只有设备本地日期的聚合记录在切价临界日按日期估算。Codex 缓存写入总量按 30 分钟费率计算。
+
+来源：[OpenAI Astra 模型卡](https://developers.openai.com/api/docs/models/gpt-6.2-astra)、[OpenAI Sol 模型卡](https://developers.openai.com/api/docs/models/gpt-6.2-sol)、[OpenAI 定价](https://developers.openai.com/api/docs/pricing)。
