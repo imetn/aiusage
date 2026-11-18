@@ -1,5 +1,6 @@
 import { PUBLIC_READ_CACHE_HEADERS, jsonError, jsonOk } from '../utils/response.js';
 import { toPublicProjectName } from '../utils/privacy.js';
+import { addModelFilter, MODEL_GROUP_SQL } from '../utils/model-group.js';
 import type { Env } from '../types.js';
 import type { OverviewComparisonPayload } from '@aiusage/shared';
 
@@ -141,13 +142,13 @@ export async function handleOverview(url: URL, env: Env): Promise<Response> {
     }>(),
     env.DB.prepare(`
       SELECT
-        b.model AS value,
+        ${MODEL_GROUP_SQL} AS value,
         COALESCE(SUM(b.estimated_cost_usd), 0) AS estimated_cost_usd,
         COALESCE(SUM(b.event_count), 0) AS event_count
       FROM daily_usage_breakdown b
       ${where.whereClause}
-      GROUP BY b.model
-      HAVING b.model IS NOT NULL AND b.model != ''
+      GROUP BY value
+      HAVING value IS NOT NULL AND value != ''
       ORDER BY estimated_cost_usd DESC, value ASC
     `).bind(...where.params).all<{
       value: string;
@@ -171,14 +172,14 @@ export async function handleOverview(url: URL, env: Env): Promise<Response> {
     }>(),
     env.DB.prepare(`
       SELECT
-        b.model,
+        ${MODEL_GROUP_SQL} AS model,
         ${PROJECT_DISPLAY_SQL} AS project,
         COALESCE(SUM(${TOTAL_TOKENS_SQL}), 0) AS total_tokens
       FROM daily_usage_breakdown b
       ${where.whereClause}
-      GROUP BY b.model, ${PROJECT_DISPLAY_SQL}
+      GROUP BY 1, ${PROJECT_DISPLAY_SQL}
       HAVING COALESCE(SUM(${TOTAL_TOKENS_SQL}), 0) > 0
-      ORDER BY total_tokens DESC, b.model ASC, project ASC
+      ORDER BY total_tokens DESC, model ASC, project ASC
     `).bind(...where.params).all<{
       model: string;
       project: string;
@@ -355,7 +356,7 @@ export function buildWhere(filters: DashboardFilters, omit?: FilterKey): WherePa
   if (omit !== 'provider') addValueFilter(clauses, params, 'b.provider', filters.provider);
   if (omit !== 'product') addProductFilter(clauses, params, 'b', filters.product);
   if (omit !== 'channel') addValueFilter(clauses, params, 'b.channel', filters.channel);
-  if (omit !== 'model') addValueFilter(clauses, params, 'b.model', filters.model);
+  if (omit !== 'model') addModelFilter(clauses, params, filters.model);
   if (omit !== 'project') addValueFilter(clauses, params, PROJECT_DISPLAY_SQL, filters.project);
 
   return {
@@ -367,7 +368,7 @@ export function buildWhere(filters: DashboardFilters, omit?: FilterKey): WherePa
 async function loadFacetOptions(column: string, filters: DashboardFilters, env: Env): Promise<FacetItem[]> {
   const omit = toFilterKey(column);
   const where = buildWhere(filters, omit);
-  const columnExpr = column === 'project' ? PROJECT_DISPLAY_SQL : `b.${column}`;
+  const columnExpr = column === 'project' ? PROJECT_DISPLAY_SQL : column === 'model' ? MODEL_GROUP_SQL : `b.${column}`;
   const rows = await env.DB.prepare(`
     SELECT
       ${columnExpr} AS value,
@@ -375,7 +376,7 @@ async function loadFacetOptions(column: string, filters: DashboardFilters, env: 
       COALESCE(SUM(b.event_count), 0) AS event_count
     FROM daily_usage_breakdown b
     ${where.whereClause}
-    GROUP BY ${columnExpr}
+    GROUP BY value
     HAVING value IS NOT NULL AND value != ''
     ORDER BY estimated_cost_usd DESC, value ASC
     LIMIT 80

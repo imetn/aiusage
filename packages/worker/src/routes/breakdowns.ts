@@ -1,6 +1,7 @@
 import { DEFAULT_BREAKDOWN_LIMIT, MAX_BREAKDOWN_LIMIT } from '@aiusage/shared';
 import { PUBLIC_READ_CACHE_HEADERS, jsonError, jsonOk } from '../utils/response.js';
 import { toPublicProjectName } from '../utils/privacy.js';
+import { addModelFilter } from '../utils/model-group.js';
 import type { Env } from '../types.js';
 
 const SORT_FIELDS: Record<string, string> = {
@@ -74,8 +75,7 @@ export async function handleBreakdowns(url: URL, env: Env): Promise<Response> {
     }
   }
   if (model) {
-    conditions.push('b.model = ?');
-    params.push(model);
+    addModelFilter(conditions, params, [model]);
   }
   if (channel) {
     conditions.push('b.channel = ?');

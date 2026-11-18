@@ -217,6 +217,8 @@ Configure at two levels:
 | GET | `/api/v1/public/overview?range=7d` | Summary and daily trend |
 | GET | `/api/v1/public/breakdowns?range=7d&limit=50` | Detailed breakdowns |
 
+Overview model shares, filter options, and model-to-project flows group known routing aliases under the underlying model. A `model` filter with that model name includes its aliases. An explicit raw alias can still select its own rows. Detailed breakdowns retain the original identifier, provider, and recorded cost.
+
 ---
 
 ## Supported Tools
