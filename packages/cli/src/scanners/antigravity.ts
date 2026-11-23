@@ -75,6 +75,7 @@ async function readAntigravityData(baseDir?: string): Promise<AntigravityData> {
 export async function scanAntigravityDates(
   targetDates: string[],
   baseDir?: string,
+  projectAliases?: Record<string, string>,
 ): Promise<Map<string, IngestBreakdown[]>> {
   const dates = new Set(targetDates);
   const grouped = initDateMap(dates);
@@ -87,7 +88,7 @@ export async function scanAntigravityDates(
     if (!map) continue;
     const context = data.contexts.get(record.fallbackId)!;
     const provider = inferProviderFromModel(record.model, 'google');
-    const projectFields = resolveProjectFields(context.project);
+    const projectFields = resolveProjectFields(context.project, projectAliases);
     const key = `${provider}|${context.channel}|${record.model}|${context.project}`;
     accumulate(map, key, {
       provider, product: 'antigravity', channel: context.channel, model: record.model,

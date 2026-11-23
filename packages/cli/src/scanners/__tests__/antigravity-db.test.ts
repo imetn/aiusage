@@ -123,6 +123,16 @@ describe('Antigravity protobuf usage', () => {
       record({ messageId: 'turn-1' }),
     ])).toThrow('Ambiguous');
   });
+
+  it.each(['unknown', 'antigravity-model-98765', 'gemini-pro-orchestrator', 'gemini-default'])(
+    'fills a richer %s snapshot with a concrete model from the same request', model => {
+      const unique = deduplicateAntigravityUsage([
+        record({ responseId: 'same-request', model, input: 100 }),
+        record({ responseId: 'same-request', model: 'gemini-4-hydrogen-low', input: 5 }),
+      ]);
+      expect(unique).toEqual([expect.objectContaining({ input: 100, model: 'gemini-4-hydrogen-low' })]);
+    },
+  );
 });
 
 describe('Antigravity SQLite conversations', () => {
@@ -136,6 +146,16 @@ describe('Antigravity SQLite conversations', () => {
       project: '/fictional/Orchestrator Project', projectDisplay: 'Orchestrator Project' });
     expect(row.inputTokens + row.cachedInputTokens + row.cacheWriteTokens + row.outputTokens + row.reasoningOutputTokens).toBe(210);
     expect(await discoverAntigravityProjects(directory)).toEqual(['/fictional/Orchestrator Project']);
+  });
+
+  it('applies project aliases while retaining the original project path', async () => {
+    await database(directory, 'alias', [[1, gen(proto([2, 5], [3, 2], [11, 'aliased-call']))]]);
+    const rows = (await scanAntigravityDates(['2026-11-23'], directory, {
+      '/fictional/Orchestrator Project': 'Workspace Alias',
+    })).get('2026-11-23')!;
+    expect(rows).toEqual([expect.objectContaining({
+      project: '/fictional/Orchestrator Project', projectDisplay: 'Orchestrator Project', projectAlias: 'Workspace Alias',
+    })]);
   });
 
   it('reads step-only Orchestrator planners and executors independently across days', async () => {
@@ -186,6 +206,16 @@ describe('Antigravity SQLite conversations', () => {
     ]);
     const rows = (await scanAntigravityDates(['2026-11-23'], directory)).get('2026-11-23')!;
     expect(rows.map(row => row.model).sort()).toEqual(['gemini-4-carbon-high', 'gemini-4-hydrogen-low', 'gemini-4-neon-high']);
+  });
+
+  it('keeps enriched anonymous step snapshots and their original copy identities', async () => {
+    const original = await database(directory, 'old-copy', [[1, gen(proto([2, 7], [3, 2]))]]);
+    await copyFile(original, join(directory, 'conversations', 'live-copy.db'));
+    const live = new DatabaseSync(join(directory, 'conversations', 'live-copy.db'));
+    live.prepare('INSERT INTO steps VALUES (?, ?, NULL)').run(1, step(proto([2, 7], [3, 2], [5, 11]), 'Gemini 4 Neon (High)'));
+    live.close();
+    const rows = (await scanAntigravityDates(['2026-11-23'], directory)).get('2026-11-23')!;
+    expect(rows).toEqual([expect.objectContaining({ eventCount: 1, inputTokens: 7, cachedInputTokens: 11, outputTokens: 2 })]);
   });
 
   it('deduplicates a renamed database copy even when the call has no request identifiers', async () => {

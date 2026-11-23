@@ -33,6 +33,7 @@ export interface AntigravityUsage {
   /** Local provenance for message-scoped IDs and copies without request IDs. */
   identityScope?: string;
   sourceId?: string;
+  sourceIds?: string[];
 }
 
 export interface AntigravityConversation {
@@ -124,10 +125,15 @@ export function normalizeAntigravityModel(raw: string): string {
   return [family, model, display[3]?.toLowerCase()].filter(Boolean).join('-');
 }
 
+function unresolvedModel(model: string): boolean {
+  return model === 'unknown' || /^antigravity-model-\d+$/.test(model)
+    || /orchestrator|^(?:gemini[-_ ])?(?:default|auto)$/i.test(model);
+}
+
 function callModel(display: string, response: string, stepModel: string): string {
   const candidates = [display, response, stepModel].filter(value => value && value !== 'unknown');
   // These labels select a workflow/router rather than the billed executor.
-  const concrete = candidates.find(value => !/orchestrator|^(?:gemini[-_ ])?(?:default|auto)$/i.test(value));
+  const concrete = candidates.find(value => !unresolvedModel(value));
   return normalizeAntigravityModel(concrete ?? candidates[0] ?? '');
 }
 
@@ -165,14 +171,24 @@ function strongKeys(record: AntigravityUsage): string[] {
 function keys(record: AntigravityUsage): string[] {
   return [...strongKeys(record),
     ...(record.messageId ? [`message:${record.identityScope ?? ''}:${record.messageId}`] : []),
-    ...(record.sourceId ? [`source:${record.sourceId}`] : [])];
+    ...[...new Set([...(record.sourceIds ?? []), ...(record.sourceId ? [record.sourceId] : [])])]
+      .map(source => `source:${source}`)];
 }
 function score(record: AntigravityUsage): number {
   return record.input + record.cached + record.cacheWrite + record.output + record.reasoning;
 }
 function richer(left: AntigravityUsage, right: AntigravityUsage): AntigravityUsage {
   const [rich, other] = score(right) > score(left) ? [right, left] : [left, right];
-  return { ...rich, timestamp: rich.timestamp ?? other.timestamp, model: rich.model === 'unknown' ? other.model : rich.model };
+  return { ...rich, timestamp: rich.timestamp ?? other.timestamp,
+    model: unresolvedModel(rich.model) && !unresolvedModel(other.model) ? other.model : rich.model,
+    responseId: rich.responseId || other.responseId,
+    providerMessageId: rich.providerMessageId || other.providerMessageId,
+    messageId: rich.messageId || other.messageId,
+    sourceIds: [...new Set([
+      ...(left.sourceIds ?? []), ...(right.sourceIds ?? []),
+      ...(left.sourceId ? [left.sourceId] : []), ...(right.sourceId ? [right.sourceId] : []),
+    ])],
+  };
 }
 
 export function deduplicateAntigravityUsage(records: AntigravityUsage[]): AntigravityUsage[] {
@@ -288,6 +304,12 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
     `${row.kind}:${row.idx}`, createHash('sha256').update(JSON.stringify(row)).digest('hex'),
   ]));
   const sessionId = basename(path, '.db');
+  const withSource = (record: AntigravityUsage): AntigravityUsage => {
+    const position = record.fallbackId.slice(sessionId.length + 1);
+    const [kind, idx, ...attempt] = position.split(':');
+    return { ...record, identityScope: sessionId,
+      sourceId: `${fingerprints.get(`${kind}:${idx}`)}:${attempt.join(':')}` };
+  };
   const steps = new Map<number, { timestamp: Date | null; model: string; fields: Fields }>();
   let project = 'unknown';
   for (const row of rows) {
@@ -307,7 +329,7 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
     }
   }
   const records: AntigravityUsage[] = [];
-  const generatorIndices = new Set<number>();
+  const generatorSlots = new Map<string, number>();
   for (const row of rows.filter(row => row.kind === 'gen' && row.value)) {
     const chat = message(decodeAntigravityMessage(Buffer.from(row.value, 'hex')), 1);
     const step = steps.get(row.idx);
@@ -316,25 +338,25 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
     const fallback = `${sessionId}:gen:${row.idx}`;
     const record = usage(message(chat, 4), model, timestamp, fallback);
     const attempts = [...(record ? [record] : []), ...retries(chat, 17, model, timestamp, fallback)];
-    if (attempts.length) generatorIndices.add(row.idx);
-    records.push(...attempts);
+    for (const attempt of attempts) {
+      generatorSlots.set(attempt.fallbackId, records.length);
+      records.push(withSource(attempt));
+    }
   }
   for (const [idx, { fields, model, timestamp }] of steps) {
     const fallback = `${sessionId}:step:${idx}`;
     const current = usage(message(fields, 9), model, timestamp, fallback);
     for (const record of [...(current ? [current] : []), ...retries(fields, 28, model, timestamp, fallback)]) {
-      // A same-index anonymous step duplicates its generator carrier. Other
-      // steps remain independent calls even in a mixed old/new-format store.
-      if (generatorIndices.has(idx) && keys(record).length === 0) continue;
-      records.push(record);
+      const generatorIndex = generatorSlots.get(record.fallbackId.replace(`${sessionId}:step:`, `${sessionId}:gen:`));
+      const generator = generatorIndex === undefined ? undefined : records[generatorIndex];
+      // Same-index carriers/attempt slots supply a fallback identity when
+      // either snapshot omits request IDs. Keep the more complete snapshot.
+      if (generator && (!strongKeys(record).length || !strongKeys(generator).length)) {
+        records[generatorIndex!] = richer(generator, withSource(record));
+      } else records.push(withSource(record));
     }
   }
-  const unique = deduplicateAntigravityUsage(records.map(record => {
-    const position = record.fallbackId.slice(sessionId.length + 1);
-    const [kind, idx, ...attempt] = position.split(':');
-    return { ...record, identityScope: sessionId,
-      sourceId: `${fingerprints.get(`${kind}:${idx}`)}:${attempt.join(':')}` };
-  }));
+  const unique = deduplicateAntigravityUsage(records);
   for (const record of unique) {
     if (!record.timestamp) throw new Error('Antigravity token usage has no per-call timestamp');
   }
