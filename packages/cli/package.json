@@ -1,6 +1,6 @@
 {
   "name": "@aiusage/cli",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "description": "Track and sync AI tool token usage across devices.",
   "license": "MIT",
   "private": false,

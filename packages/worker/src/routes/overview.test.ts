@@ -143,3 +143,42 @@ describe('model reporting groups', () => {
     }
   });
 });
+
+it('groups AGY reasoning modes in model shares, filters and flow without changing stored usage', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    for (const migration of ['0001_init.sql', '0002_project_fields.sql', '0004_daily_activity.sql']) {
+      db.exec(readFileSync(new URL(`../../migrations/${migration}`, import.meta.url), 'utf8'));
+    }
+    db.exec(`
+      INSERT INTO devices (device_id, public_label, timezone, first_seen_at, last_seen_at)
+      VALUES ('mac', 'Mac', 'UTC', '2026-11-23', '2026-11-23');
+      INSERT INTO daily_usage (device_id, usage_date, created_at, updated_at)
+      VALUES ('mac', '2026-11-23', '2026-11-23', '2026-11-23');
+    `);
+    const rows = ['gemini-4-neon-low', 'gemini-4-neon-xhigh', 'claude-opus-5-5-high', 'claude-opus-5-5-medium', 'gpt-oss-120b-medium'];
+    const insert = db.prepare(`INSERT INTO daily_usage_breakdown
+      (device_id, usage_date, provider, product, model, project, project_display, estimated_cost_usd, event_count, input_tokens, output_tokens, reasoning_output_tokens, created_at, updated_at)
+      VALUES ('mac', '2026-11-23', 'google', 'antigravity', ?, 'test', 'Test', 1, 1, 100, 20, 30, '2026-11-23', '2026-11-23')`);
+    for (const model of rows) insert.run(model);
+    const env = { PUBLIC_PROJECT_VISIBILITY: 'plain', DB: { prepare(sql: string) {
+      const statement = db.prepare(sql);
+      return { bind: (...params: SQLInputValue[]) => ({ first: async () => statement.get(...params), all: async () => ({ results: statement.all(...params) }) }) };
+    } } } as unknown as Env;
+    const url = (query = '') => new URL(`https://example.test/overview?range=all&product=antigravity${query}`);
+    const overview = await (await handleOverview(url(), env)).json<OverviewResponse>();
+    expect(overview.totalEvents).toBe(5);
+    expect(overview.totalCostUsd).toBe(5);
+    expect(overview.tokenComposition.reduce((sum, day) => sum + day.totalTokens, 0)).toBe(750);
+    expect(overview.modelCostShare.map(row => row.value).sort()).toEqual(['claude-opus-5-5', 'gemini-4-neon', 'gpt-oss-120b']);
+    expect(overview.filters.options.models).toEqual(overview.modelCostShare);
+    expect(overview.sankey.links).toContainEqual({ source: 'model-gemini-4-neon', target: 'project-Test', value: 300 });
+    const filtered = await (await handleOverview(url('&model=gemini-4-neon'), env)).json<OverviewResponse>();
+    expect(filtered.totalEvents).toBe(2);
+    expect(filtered.tokenComposition.reduce((sum, day) => sum + day.totalTokens, 0)).toBe(300);
+    expect(filtered.totalCostUsd).toBe(2);
+    expect(db.prepare('SELECT model FROM daily_usage_breakdown ORDER BY model').all().map(row => row.model)).toEqual([...rows].sort());
+  } finally {
+    db.close();
+  }
+});

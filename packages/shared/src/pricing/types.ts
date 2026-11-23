@@ -50,6 +50,8 @@ export interface ModelPricing {
 
   /** 阶梯定价（按 input token 数）。非空时覆盖顶层 input/output。 */
   tiers?: PricingTier[];
+  /** 按调用日期生效的后续单价，按日期升序。保留基础价格以重算历史促销。 */
+  price_changes?: Array<PricingTier & { effective_from: string }>;
 }
 
 /** 一个 provider/product 下的模型集合。 */

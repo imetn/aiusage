@@ -9,11 +9,33 @@ import type { ProductPricing } from '../types.js';
  * 多模态文本/图像/视频/音频价格不同时，统一按 text 价；audio 等专用模型走单独 product（如 TTS、Live API）。
  */
 export const google: Record<string, ProductPricing> = {
-  // Antigravity 本地不输出 token 信息，仅事件计数；保留空 models 不算费用
+  // Antigravity 按实际模型复用 API 参考价，计算器标记 estimated。
   antigravity: { models: {} },
 
   'gemini-cli': {
     models: {
+      // https://aistudio.google.com/docs/pricing (2026-11-23)
+      'gemini-4-neon': {
+        currency: 'USD', input_per_million: 3, cached_input_per_million: 0.15, output_per_million: 15,
+      },
+      'gemini-4-carbon': {
+        currency: 'USD', input_per_million: 2, cached_input_per_million: 0.1, output_per_million: 10,
+        notes: 'introductory price through 2026-11-30; implicit caching only',
+        price_changes: [{ effective_from: '2026-12-01', input_per_million: 4, cached_input_per_million: 0.2, output_per_million: 20 }],
+      },
+      'gemini-4-argon': {
+        currency: 'USD', input_per_million: 2, cached_input_per_million: 0.1, output_per_million: 10,
+        notes: 'introductory price through 2026-11-30; implicit caching only',
+        price_changes: [{ effective_from: '2026-12-01', input_per_million: 4, cached_input_per_million: 0.2, output_per_million: 20 }],
+      },
+      'gemini-4-hydrogen': {
+        currency: 'USD', input_per_million: 1.5, cached_input_per_million: 0.075, output_per_million: 7.5,
+      },
+      'gemini-3.8-flash': {
+        currency: 'USD', input_per_million: 0.75, cached_input_per_million: 0.075, output_per_million: 3.75,
+        notes: 'introductory price through 2026-12-31; cache storage is excluded',
+        price_changes: [{ effective_from: '2027-01-01', input_per_million: 1.5, cached_input_per_million: 0.15, output_per_million: 7.5 }],
+      },
       // ── Gemini 3.x 系列 ──
       // https://aistudio.google.com/docs/pricing#gemini-3.5-flash-lite (2026-11-14)
       'gemini-3.5-flash-lite': {

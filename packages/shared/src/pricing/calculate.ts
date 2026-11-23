@@ -172,15 +172,32 @@ export function calculateCost(
     return { estimatedCostUsd: 0, costStatus: 'exact', pricingVersion: cat.version };
   }
 
-  const { baseModel, tier } = splitServiceTierSuffix(model);
+  const antigravity = product === 'antigravity';
+  const pricedModel = antigravity ? model.replace(/-(?:none|low|medium|high|xhigh|max)$/, '') : model;
+  const referenceProducts: Record<string, string> = { google: 'gemini-cli', anthropic: 'claude-code' };
+  const pricedProduct = antigravity ? (referenceProducts[provider] ?? product) : product;
+  const { baseModel, tier } = splitServiceTierSuffix(pricedModel);
 
-  const resolved = resolveModelPricing(cat, provider, product, baseModel);
+  const resolved = resolveModelPricing(cat, provider, pricedProduct, baseModel);
   if (!resolved) {
     return { estimatedCostUsd: 0, costStatus: 'unavailable', pricingVersion: cat.version };
   }
 
-  const { resolvedModel, pricing, normalized } = resolved;
-  let costStatus: CostStatus = normalized ? 'estimated' : 'exact';
+  const { resolvedModel, normalized } = resolved;
+  let pricing = resolved.pricing;
+  let costStatus: CostStatus = normalized || antigravity ? 'estimated' : 'exact';
+  if (pricing.price_changes?.length) {
+    const { usageTime } = options;
+    const usageDate = typeof usageTime === 'string' ? usageTime : new Date(usageTime ?? Date.now()).toISOString().slice(0, 10);
+    for (const change of pricing.price_changes) {
+      if (change.effective_from <= usageDate) pricing = { ...pricing, ...change };
+    }
+    if (usageTime === undefined || (typeof usageTime === 'string' && pricing.price_changes!.some(change => {
+      const previousDay = new Date(`${change.effective_from}T00:00:00Z`);
+      previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+      return usageDate === change.effective_from || usageDate === previousDay.toISOString().slice(0, 10);
+    }))) costStatus = 'estimated';
+  }
 
   // 阶梯：按总 input（含 cached/cw）命中档位
   let unit: PricingTier;

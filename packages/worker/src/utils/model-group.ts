@@ -7,6 +7,7 @@ const MODEL_GROUP_ALIASES: Record<string, string> = {
   'group/auto-deepseek-v4-1-flash': 'deepseek-v4.1-flash',
   'opensource/deepseek_v4_1_flash': 'deepseek-v4.1-flash',
   'opensource/glm5.2': 'glm-5.2',
+  'gpt-oss-120b-medium': 'gpt-oss-120b',
   'grok-4.7-fast': 'grok-4.7',
   'grok/grok-4.7': 'grok-4.7',
   'group/auto-grok-4-7': 'grok-4.7',
@@ -27,13 +28,19 @@ function modelGroupSql(column: string): string {
     const length = `CASE WHEN substr(${column}, ${separator} + 1) IN (${levels})
       THEN ${separator} - ${start} ELSE length(${column}) - ${start - 1} END`;
     const name = `substr(${column}, ${start}, ${length})`;
-    const withoutSpeed = `CASE WHEN ${name} GLOB 'claude-*-fast' THEN substr(${column}, ${start}, (${length}) - 5) ELSE ${name} END`;
+    const effort = REASONING_LEVELS.map(level => `WHEN ${name} GLOB 'claude-*-${level}' THEN ${length} - ${level.length + 1}`).join(' ');
+    const effortLength = `CASE ${effort} ELSE ${length} END`;
+    const effortName = `substr(${column}, ${start}, ${effortLength})`;
+    const withoutSpeed = `CASE WHEN ${effortName} GLOB 'claude-*-fast' THEN substr(${column}, ${start}, (${effortLength}) - 5) ELSE ${effortName} END`;
     return `WHEN ${column} GLOB '${prefix}claude-*' THEN replace(${withoutSpeed}, '.', '-')`;
   });
+  const geminiEffort = REASONING_LEVELS.map(level =>
+    `WHEN ${column} GLOB 'gemini-*-${level}' THEN substr(${column}, 1, length(${column}) - ${level.length + 1})`,
+  );
   const speeds = GPT_SERVICE_SUFFIXES.map(suffix =>
     `WHEN ${column} GLOB 'gpt-[0-9]*-${suffix}' THEN substr(${column}, 1, length(${column}) - ${suffix.length + 1})`,
   );
-  return `CASE ${[...aliases, ...speeds, ...claude].join('\n')} ELSE ${column} END`;
+  return `CASE ${[...aliases, ...speeds, ...geminiEffort, ...claude].join('\n')} ELSE ${column} END`;
 }
 
 export const MODEL_GROUP_SQL = modelGroupSql('b.model');

@@ -24,7 +24,7 @@ differ, rather than treating every local record as billable token usage.
 | Copilot CLI | OpenTelemetry JSONL under `~/.copilot/otel/` plus `session-state` shutdown totals; granular inference spans supersede same-trace aggregates. |
 | Copilot for VS Code | Chat logs, legacy session JSON, and modern CRDT `workspaceStorage/**/chatSessions/*.jsonl`; modern sessions contribute real token fields, while legacy records remain interaction-only. |
 | Gemini CLI | Session JSON/JSONL, headless stats, and `$set.messages` updates under `~/.gemini/tmp/`, with last-write-wins request deduplication. |
-| Antigravity | `~/.gemini/antigravity/brain` and browser-recording metadata; currently reports interaction counts because those artifacts do not expose reliable token counters. |
+| Antigravity | Read-only SQLite usage from `~/.gemini/antigravity`, `antigravity-cli`, and `antigravity-ide`; de-duplicates generation, step, retry, and copied-session records. Legacy metadata remains event-only. Model costs use estimated API reference prices, not subscription quota or AI credit charges. |
 | Amp | `~/.local/share/amp/threads/`; reconciles the usage ledger with message usage so partial ledgers are completed without double-counting. |
 | Kimi CLI / Kimi Code | Legacy `~/.kimi/sessions/` and `$KIMI_CODE_HOME/sessions/` (default `~/.kimi-code/sessions/`) `wire.jsonl`; handles progressive status snapshots and nested agent sessions. |
 | Qwen Code | Current `~/.qwen/projects/` and legacy `~/.qwen/tmp/` chat JSONL, with session/position deduplication and cache-aware input accounting. |

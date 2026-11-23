@@ -11,6 +11,7 @@ import {
   resolveTraeIntlCacheDir,
   resolveTraeNativeCacheDir,
 } from './scanners/trae.js';
+import { discoverAntigravityUsageDates } from './scanners/antigravity.js';
 import { discoverOpenCodeUsageDates } from './scanners/opencode.js';
 import type { PricingInfo } from './pricing.js';
 
@@ -94,12 +95,15 @@ export async function buildLocalReport(
   for (const result of results) {
     const usageDate = result.usageDate;
     const dayTotals = withTotalTokens(result.totals);
-    const hasData = result.breakdowns.length > 0 || dayTotals.eventCount > 0 || dayTotals.totalTokens > 0;
+    // Zeroed legacy buckets replace superseded events during sync, but are not report activity.
+    const visibleBreakdowns = result.breakdowns.filter(b => b.eventCount > 0
+      || b.inputTokens + b.cachedInputTokens + b.cacheWriteTokens + b.outputTokens + (b.reasoningOutputTokens ?? 0) > 0);
+    const hasData = visibleBreakdowns.length > 0 || dayTotals.eventCount > 0 || dayTotals.totalTokens > 0;
 
     if (hasData) {
       daysWithData += 1;
 
-      for (const breakdown of result.breakdowns) {
+      for (const breakdown of visibleBreakdowns) {
         const breakdownTotals = toBreakdownTotals(breakdown, pricingWarnings, options.pricingCatalog, usageDate);
         dayTotals.estimatedCostUsd += breakdownTotals.estimatedCostUsd;
         mergeTotals(totals, breakdownTotals);
@@ -437,6 +441,7 @@ function isChatSessionFile(filePath: string): boolean {
 }
 
 async function discoverAntigravityDates(dates: Set<string>): Promise<void> {
+  for (const day of await discoverAntigravityUsageDates()) dates.add(day);
   const home = homedir();
   const brainFiles: string[] = [];
   const browserFiles: string[] = [];
@@ -701,8 +706,8 @@ export function calculateBreakdownCost(
       cacheWriteTokens: breakdown.cacheWriteTokens,
       cacheWrite5mTokens: breakdown.cacheWrite5mTokens,
       cacheWrite1hTokens: breakdown.cacheWrite1hTokens,
-      // Codex stores reasoning separately from visible output in the breakdown.
-      outputTokens: breakdown.outputTokens + (breakdown.product === 'codex' ? (breakdown.reasoningOutputTokens ?? 0) : 0),
+      // Codex and Antigravity store thinking separately from visible output.
+      outputTokens: breakdown.outputTokens + (['codex', 'antigravity'].includes(breakdown.product) ? (breakdown.reasoningOutputTokens ?? 0) : 0),
     },
     {
       ...(pricingCatalog ? { catalog: pricingCatalog } : {}),

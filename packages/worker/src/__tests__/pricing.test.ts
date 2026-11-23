@@ -438,3 +438,21 @@ describe('getWorstCostStatus', () => {
     expect(getWorstCostStatus([])).toBe('exact');
   });
 });
+
+describe('Antigravity disjoint output counters', () => {
+  const breakdown = {
+    provider: 'google', product: 'antigravity', channel: 'cli', model: 'gemini-4-neon-high', project: 'unknown',
+    eventCount: 1, inputTokens: 1_000_000, cachedInputTokens: 0, cacheWriteTokens: 0,
+    outputTokens: 200_000, reasoningOutputTokens: 800_000,
+  } as const;
+  it('bills visible and thinking output exactly once', () => {
+    expect(calculateIngestBreakdownCost(breakdown, '2026-11-23', '1.8.5')).toMatchObject({
+      estimatedCostUsd: 18, costStatus: 'estimated',
+    });
+  });
+  it('keeps client per-request reference prices estimated', () => {
+    expect(calculateIngestBreakdownCost({ ...breakdown, costUSD: 17.9999, pricingVersion: getPricingCatalog().version }, '2026-11-23', '1.8.5')).toMatchObject({
+      estimatedCostUsd: 17.9999, costStatus: 'estimated',
+    });
+  });
+});

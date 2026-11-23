@@ -55,3 +55,13 @@ test('supports multi-selected event-only product filters', () => {
   assert.equal(availability.mode, 'event-only');
   assert.equal(availability.tokenMetricsUnavailable, true);
 });
+
+
+test('shows Antigravity token metrics when SQLite usage exists alongside legacy events', () => {
+  const availability = getMetricAvailability({
+    selectedProduct: 'antigravity', productOptions: [{ value: 'antigravity' }],
+    totalEvents: 51, totalTokens: 1234,
+  });
+  assert.equal(availability.mode, 'standard');
+  assert.equal(availability.tokenMetricsUnavailable, false);
+});

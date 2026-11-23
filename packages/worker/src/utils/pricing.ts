@@ -14,7 +14,8 @@ export function calculateIngestBreakdownCost(
   const [, major, minor, patch] = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(clientVersion ?? '') ?? [];
   const separatesReasoning = Number(major) > 1
     || (Number(major) === 1 && (Number(minor) > 7 || (Number(minor) === 7 && Number(patch) >= 12)));
-  const reasoning = breakdown.product === 'codex' && separatesReasoning ? (breakdown.reasoningOutputTokens ?? 0) : 0;
+  const reasoning = (breakdown.product === 'codex' && separatesReasoning) || breakdown.product === 'antigravity'
+    ? (breakdown.reasoningOutputTokens ?? 0) : 0;
   const calculated = calculateSharedCost(
     breakdown.provider,
     breakdown.product,
@@ -40,7 +41,7 @@ export function calculateIngestBreakdownCost(
     return calculated;
   }
 
-  return { ...calculated, estimatedCostUsd: breakdown.costUSD, costStatus: 'exact' };
+  return { ...calculated, estimatedCostUsd: breakdown.costUSD, costStatus: breakdown.product === 'antigravity' ? 'estimated' : 'exact' };
 }
 
 export {

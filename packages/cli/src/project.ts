@@ -1,6 +1,7 @@
 import { open, readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
+import { discoverAntigravityProjects as discoverAntigravityDatabaseProjects } from './scanners/antigravity.js';
 import { resolveKimiCodeHome } from './scanners/kimi.js';
 import { resolveTraeNativeCacheDir } from './scanners/trae.js';
 
@@ -317,15 +318,16 @@ async function discoverCopilotVscodeProjects(): Promise<string[]> {
 }
 
 async function discoverAntigravityProjects(): Promise<string[]> {
+  const databaseProjects = await discoverAntigravityDatabaseProjects();
   const dir = join(homedir(), '.gemini', 'antigravity', 'knowledge');
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
-    return [];
+    return databaseProjects;
   }
 
-  const projects = new Set<string>();
+  const projects = new Set<string>(databaseProjects);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
 

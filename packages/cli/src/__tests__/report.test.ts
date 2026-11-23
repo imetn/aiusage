@@ -348,3 +348,31 @@ describe('calculateBreakdownCost', () => {
     expect([...warnings]).toEqual(['gpt-5.6-sol 的阶梯价格已按每事件平均输入量估算。']);
   });
 });
+
+it('includes Antigravity thinking in billed output exactly once', async () => {
+  const { calculateBreakdownCost } = await import('../report.js');
+  expect(calculateBreakdownCost({
+    provider: 'google', product: 'antigravity', channel: 'cli', model: 'gemini-4-neon-high', project: 'unknown',
+    eventCount: 1, inputTokens: 1_000_000, cachedInputTokens: 0, cacheWriteTokens: 0,
+    outputTokens: 200_000, reasoningOutputTokens: 800_000,
+  }, new Set())).toBe(18);
+});
+
+it('keeps zeroed legacy replacement buckets out of report activity', async () => {
+  const scan = await import('../scan.js');
+  const zero = { eventCount: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
+  const spy = vi.spyOn(scan, 'scanDates').mockResolvedValue([{
+    usageDate: '2026-11-01', totals: zero,
+    breakdowns: [{ provider: 'google', product: 'antigravity', channel: 'ide', model: 'unknown', project: 'unknown', ...zero }],
+  }]);
+  try {
+    const { buildLocalReport } = await import('../report.js');
+    const report = await buildLocalReport('all', { dates: ['2026-11-01'], tools: ['antigravity'] });
+    expect(report.daysWithData).toBe(0);
+    expect(report.daily).toEqual([]);
+    expect(report.byModel).toEqual([]);
+    expect(report.bySource).toEqual([]);
+  } finally {
+    spy.mockRestore();
+  }
+});

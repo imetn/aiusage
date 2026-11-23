@@ -175,7 +175,7 @@ export async function runDoctor(lang: Lang = 'zh'): Promise<Check[]> {
       exts: ['.log', '.json', '.jsonl'],
     },
     { dirs: [join(home, '.gemini', 'tmp')], label: 'Gemini CLI', exts: ['.json', '.jsonl'] },
-    { dirs: [join(home, '.gemini', 'antigravity')], label: 'Antigravity', exts: ['.json'] },
+    { dirs: ['antigravity', 'antigravity-cli', 'antigravity-ide'].map(dir => join(home, '.gemini', dir)), label: 'Antigravity', exts: ['.json', '.db', '.pb'] },
     { dirs: [join(home, '.qwen', 'projects'), join(home, '.qwen', 'tmp')], label: 'Qwen Code', exts: ['.jsonl'] },
     { dirs: [join(resolveKimiCodeHome(home), 'sessions')], label: 'Kimi Code', exts: ['.jsonl'] },
     { dirs: [join(home, '.kimi', 'sessions')], label: 'Kimi CLI (legacy)', exts: ['.jsonl'] },

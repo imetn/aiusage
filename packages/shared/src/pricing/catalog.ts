@@ -11,7 +11,7 @@ import { sourcegraph } from './data/sourcegraph.js';
 import { xai } from './data/xai.js';
 import { inflection, cursor, droid, opencode } from './data/placeholders.js';
 
-export const PRICING_VERSION = '2026-11-18-gpt-6-2-v1';
+export const PRICING_VERSION = '2026-11-23-agy-gemini-4-v1';
 
 /**
  * 模型别名（精确匹配优先于前缀回退）。
@@ -41,9 +41,14 @@ export const catalog: PricingCatalog = {
   },
   aliases,
   providers: {
-    anthropic,
+    anthropic: { ...anthropic, antigravity: { models: Object.fromEntries(
+      ['claude-opus-5-5', 'claude-sonnet-5-5'].map(model => [model, anthropic['claude-code'].models[model]]),
+    ) } },
     openai,
-    google,
+    google: { ...google, antigravity: { models: Object.fromEntries(
+      ['gemini-4-neon', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen', 'gemini-3.8-flash']
+        .map(model => [model, google['gemini-cli'].models[model]]),
+    ) } },
     moonshot,
     alibaba,
     deepseek,

@@ -105,3 +105,11 @@ describe('runDoctor', () => {
     );
   });
 });
+
+it.each(['antigravity-cli', 'antigravity-ide'])('detects Antigravity usage databases under %s', async root => {
+  const dir = join(homeDir, '.gemini', root, 'conversations');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'session.db'), '');
+  const { runDoctor } = await import('../doctor.js');
+  expect(await runDoctor('en')).toContainEqual(expect.objectContaining({ name: 'Antigravity', status: 'ok', message: '1 session found' }));
+});

@@ -100,7 +100,7 @@ export async function scanDates(targetDates: string[], options: ScanOptions = {}
 
   const selected = options.tools ? new Set(options.tools) : undefined;
   const scannerDefinitions: Array<{ products: string[]; scan: () => Promise<Map<string, IngestBreakdown[]>> }> = [
-    { products: ['antigravity'], scan: () => scanAntigravityDates(uniqueDates) },
+    { products: ['antigravity'], scan: () => scanAntigravityDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['claude-code'], scan: () => scanClaudeDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['codex'], scan: () => scanCodexDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['copilot-cli'], scan: () => scanCopilotDates(uniqueDates, undefined, options.projectAliases) },
