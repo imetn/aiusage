@@ -1,6 +1,6 @@
 {
   "name": "@aiusage/cli",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "description": "Track and sync AI tool token usage across devices.",
   "license": "MIT",
   "private": false,
@@ -39,6 +39,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "proper-lockfile": "4.1.2",
     "ws": "^8.18.0"
   },
   "scripts": {
@@ -50,6 +51,7 @@
   "devDependencies": {
     "@aiusage/shared": "workspace:*",
     "@types/node": "^22",
+    "@types/proper-lockfile": "4.1.4",
     "esbuild": "^0.27.4",
     "typescript": "^5",
     "vitest": "^4.1.2"

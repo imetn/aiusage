@@ -124,3 +124,5 @@ CI 自动发布（push to main 且版本号变更）：构建 → npm publish。
 需要的 GitHub Secret：`NPM_TOKEN`。
 
 发布前更新 `packages/cli/package.json` 中的版本号。
+
+- `sync` 必须把扫描、上传和配置回写一起纳入跨进程互斥，防止手动与定时同步的旧快照后到覆盖；并发调用明确提示忙碌，不静默丢弃用户请求。锁需心跳续期和崩溃恢复。

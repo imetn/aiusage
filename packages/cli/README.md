@@ -261,3 +261,5 @@ Sync log (when scheduled): `~/.aiusage/sync.log`
 ## License
 
 MIT
+
+Only one `sync` or `import` process can scan and upload at a time for the same local configuration. A second manual or scheduled sync exits with a busy message; retry after the running sync finishes. This prevents an older scan from arriving late and replacing newer daily usage. The lock refreshes while the process runs and recovers after a crashed process becomes stale.

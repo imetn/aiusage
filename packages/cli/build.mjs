@@ -9,7 +9,7 @@ await build({
   format: 'esm',
   outfile: 'dist/cli.js',
   banner: { js: '#!/usr/bin/env node' },
-  external: ['ws'],
+  external: ['ws', 'proper-lockfile'],
   minifySyntax: true,
   treeShaking: true,
 });

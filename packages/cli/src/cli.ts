@@ -1,3 +1,4 @@
+import { withSyncLock } from './sync-lock.js';
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { hostname } from 'node:os';
@@ -359,6 +360,13 @@ function prompt(question: string): Promise<string> {
 
 async function runSync(flags: Record<string, string | boolean>, positionals: string[] = []) {
   const config = await readConfig();
+  return withSyncLock(getConfigPath(), () => runSyncSnapshot(flags, positionals), config.lang === 'zh'
+    ? '已有同步任务正在运行，请等待它完成后重试。'
+    : 'Another sync is running. Wait for it to finish before retrying.');
+}
+
+async function runSyncSnapshot(flags: Record<string, string | boolean>, positionals: string[] = []) {
+  const config = await readConfig();
   assertNoPositionals('sync', positionals, config.lang === 'zh');
   if (flags.tool != null) {
     throw new Error(config.lang === 'zh'
@@ -576,6 +584,13 @@ function buildActivityPayloadByDate(
 }
 
 async function runImport(flags: Record<string, string | boolean>, positionals: string[] = []) {
+  const config = await readConfig();
+  return withSyncLock(getConfigPath(), () => runImportSnapshot(flags, positionals), config.lang === 'zh'
+    ? '已有同步任务正在运行，请等待它完成后重试。'
+    : 'Another sync is running. Wait for it to finish before retrying.');
+}
+
+async function runImportSnapshot(flags: Record<string, string | boolean>, positionals: string[] = []) {
   const config = await readConfig();
 
   const targetName = resolveOptionalString(flags.target, undefined);
