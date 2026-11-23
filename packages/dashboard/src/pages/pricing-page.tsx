@@ -2,24 +2,12 @@ import { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useLayout } from '../components/layout';
 import type { T } from '../i18n';
+import type { ModelPricing, PricingCatalog } from '@aiusage/shared';
+import { formatPricingRate } from '../utils/pricing-display';
 
 // ────────────────────────────────────────
 // Types
 // ────────────────────────────────────────
-
-interface ModelPricing {
-  input_per_million_usd: number;
-  output_per_million_usd: number;
-  cached_input_per_million_usd: number | null;
-  cache_write_5m_per_million_usd: number;
-  cache_write_1h_per_million_usd: number;
-}
-
-interface PricingCatalog {
-  version: string;
-  aliases: Record<string, string>;
-  providers: Record<string, Record<string, { models: Record<string, ModelPricing> }>>;
-}
 
 // ────────────────────────────────────────
 // Provider branding
@@ -99,18 +87,6 @@ const LOGO_COMPONENTS: Record<string, (props: { className?: string }) => JSX.Ele
 // Helpers
 // ────────────────────────────────────────
 
-function formatPrice(value: number | null, treatZeroAsDash = false): string {
-  if (value === null) return '--';
-  if (treatZeroAsDash && value === 0) return '--';
-  if (value === 0) return '$0.00';
-  if (value >= 1) return `$${value.toFixed(2)}`;
-  const s = value.toString();
-  const decimalPart = s.includes('.') ? s.split('.')[1] : '';
-  const minDecimals = 2;
-  const sigDigits = Math.max(minDecimals, decimalPart.length);
-  return `$${value.toFixed(sigDigits)}`;
-}
-
 function countProducts(
   providers: Record<string, Record<string, { models: Record<string, ModelPricing> }>>,
 ): number {
@@ -157,6 +133,7 @@ function StatCard({ label, value, small }: { label: string; value: string | numb
 function ProviderSection({
   provider,
   products,
+  fx,
   collapsed,
   onToggle,
   isDark,
@@ -164,6 +141,7 @@ function ProviderSection({
 }: {
   provider: string;
   products: Record<string, { models: Record<string, ModelPricing> }>;
+  fx: PricingCatalog['fx'];
   collapsed: boolean;
   onToggle: () => void;
   isDark: boolean;
@@ -222,6 +200,7 @@ function ProviderSection({
               key={product}
               product={product}
               models={def.models}
+              fx={fx}
               isAnthropic={isAnthropic}
               t={t}
             />
@@ -232,14 +211,16 @@ function ProviderSection({
   );
 }
 
-function ProductTable({
+export function ProductTable({
   product,
   models,
+  fx,
   isAnthropic,
   t,
 }: {
   product: string;
   models: Record<string, ModelPricing>;
+  fx: PricingCatalog['fx'];
   isAnthropic: boolean;
   t: T;
 }) {
@@ -290,23 +271,23 @@ function ProductTable({
                   {model}
                 </td>
                 <td className="border-b border-slate-50 px-3 py-2 text-right tabular-nums text-[13px] text-slate-700 group-last:border-b-0 dark:border-white/[0.04] dark:text-slate-400">
-                  {formatPrice(pricing.input_per_million_usd)}
+                  {formatPricingRate(pricing, 'input_per_million', fx)}
                 </td>
                 <td className="border-b border-slate-50 px-3 py-2 text-right tabular-nums text-[13px] text-slate-700 group-last:border-b-0 dark:border-white/[0.04] dark:text-slate-400">
-                  {formatPrice(pricing.cached_input_per_million_usd)}
+                  {formatPricingRate(pricing, 'cached_input_per_million', fx)}
                 </td>
                 {isAnthropic && (
                   <>
                     <td className="border-b border-slate-50 px-3 py-2 text-right tabular-nums text-[13px] text-slate-700 group-last:border-b-0 dark:border-white/[0.04] dark:text-slate-400">
-                      {formatPrice(pricing.cache_write_5m_per_million_usd)}
+                      {formatPricingRate(pricing, 'cache_write_5m_per_million', fx)}
                     </td>
                     <td className="border-b border-slate-50 px-3 py-2 text-right tabular-nums text-[13px] text-slate-700 group-last:border-b-0 dark:border-white/[0.04] dark:text-slate-400">
-                      {formatPrice(pricing.cache_write_1h_per_million_usd)}
+                      {formatPricingRate(pricing, 'cache_write_1h_per_million', fx)}
                     </td>
                   </>
                 )}
                 <td className="border-b border-slate-50 px-3 py-2 text-right tabular-nums text-[13px] text-slate-700 group-last:border-b-0 dark:border-white/[0.04] dark:text-slate-400">
-                  {formatPrice(pricing.output_per_million_usd)}
+                  {formatPricingRate(pricing, 'output_per_million', fx)}
                 </td>
               </tr>
             ))}
@@ -465,6 +446,7 @@ export function PricingPage() {
           <ProviderSection
             provider={provider}
             products={products}
+            fx={catalog.fx}
             collapsed={!!collapsed[provider]}
             onToggle={() => toggle(provider)}
             isDark={isDark}
