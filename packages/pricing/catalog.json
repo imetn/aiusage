@@ -1,13 +1,16 @@
 {
-  "version": "2026-11-23-agy-gemini-4-v1",
+  "version": "2026-11-24-routing-copilot-v1",
   "fx": {
     "CNY": 7.2
   },
   "aliases": {
     "claude-fibre-5": "claude-fable-5",
     "claude-fiber-5": "claude-fable-5",
+    "claude-fable-5.1": "claude-fable-5-1",
+    "claude-fable-5.2": "claude-fable-5-2",
     "claude-ops-5": "claude-opus-5",
     "claude-opus-5.5": "claude-opus-5-5",
+    "claude-sonnet-5.5": "claude-sonnet-5-5",
     "claude-opus-4-7-20260201": "claude-opus-4-7",
     "claude-sonnet-4-6-20250301": "claude-sonnet-4-6",
     "claude-opus-4-6-20250301": "claude-opus-4-6",
@@ -15,6 +18,7 @@
     "claude-sonnet-4.6": "claude-sonnet-4-6",
     "gpt-5.6": "gpt-5.6-sol",
     "codex-auto-review": "gpt-5.4",
+    "grok-4-7": "grok-4.7",
     "k3": "kimi-k3",
     "kimi-code/k3": "kimi-k3"
   },
@@ -1586,6 +1590,169 @@
       },
       "copilot-cli": {
         "models": {
+          "gpt-6.2-astra": {
+            "currency": "USD",
+            "effective_from": "2026-11-17",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates; cache writes use the 30-minute rate",
+            "input_per_million": 8,
+            "cached_input_per_million": 0.4,
+            "cache_write_per_million": 10,
+            "output_per_million": 40,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 8,
+                "cached_input_per_million": 0.4,
+                "cache_write_per_million": 10,
+                "output_per_million": 40
+              },
+              {
+                "input_per_million": 16,
+                "cached_input_per_million": 0.8,
+                "cache_write_per_million": 20,
+                "output_per_million": 60
+              }
+            ]
+          },
+          "gpt-6.2-sol": {
+            "currency": "USD",
+            "effective_from": "2026-11-17",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates; cache writes use the 30-minute rate",
+            "input_per_million": 2,
+            "cached_input_per_million": 0.1,
+            "cache_write_per_million": 2.5,
+            "output_per_million": 10,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 2,
+                "cached_input_per_million": 0.1,
+                "cache_write_per_million": 2.5,
+                "output_per_million": 10
+              },
+              {
+                "input_per_million": 4,
+                "cached_input_per_million": 0.2,
+                "cache_write_per_million": 5,
+                "output_per_million": 15
+              }
+            ]
+          },
+          "gpt-6.1-terra": {
+            "currency": "USD",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates; cache write uses the 30-minute rate",
+            "input_per_million": 1,
+            "cached_input_per_million": 0.05,
+            "cache_write_per_million": 1.25,
+            "output_per_million": 5,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 1,
+                "cached_input_per_million": 0.05,
+                "cache_write_per_million": 1.25,
+                "output_per_million": 5
+              },
+              {
+                "input_per_million": 2,
+                "cached_input_per_million": 0.1,
+                "cache_write_per_million": 2.5,
+                "output_per_million": 7.5
+              }
+            ]
+          },
+          "gpt-6.1-sol": {
+            "currency": "USD",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates",
+            "input_per_million": 2,
+            "cached_input_per_million": 0.1,
+            "cache_write_per_million": 2.5,
+            "output_per_million": 10,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 2,
+                "cached_input_per_million": 0.1,
+                "cache_write_per_million": 2.5,
+                "output_per_million": 10
+              },
+              {
+                "input_per_million": 4,
+                "cached_input_per_million": 0.2,
+                "cache_write_per_million": 5,
+                "output_per_million": 15
+              }
+            ]
+          },
+          "gpt-6-astra": {
+            "currency": "USD",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates",
+            "input_per_million": 10,
+            "cached_input_per_million": 1,
+            "cache_write_per_million": 12.5,
+            "output_per_million": 50,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 10,
+                "cached_input_per_million": 1,
+                "cache_write_per_million": 12.5,
+                "output_per_million": 50
+              },
+              {
+                "input_per_million": 20,
+                "cached_input_per_million": 2,
+                "cache_write_per_million": 25,
+                "output_per_million": 75
+              }
+            ]
+          },
+          "gpt-6-sol": {
+            "currency": "USD",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates",
+            "input_per_million": 2,
+            "cached_input_per_million": 0.2,
+            "cache_write_per_million": 2.5,
+            "output_per_million": 10,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 2,
+                "cached_input_per_million": 0.2,
+                "cache_write_per_million": 2.5,
+                "output_per_million": 10
+              },
+              {
+                "input_per_million": 4,
+                "cached_input_per_million": 0.4,
+                "cache_write_per_million": 5,
+                "output_per_million": 15
+              }
+            ]
+          },
+          "gpt-6-luna": {
+            "currency": "USD",
+            "notes": "prompts over 272K input tokens bill the full request at long-context rates",
+            "input_per_million": 0.1,
+            "cached_input_per_million": 0.01,
+            "cache_write_per_million": 0.125,
+            "output_per_million": 0.5,
+            "tiers": [
+              {
+                "threshold": 272000,
+                "input_per_million": 0.1,
+                "cached_input_per_million": 0.01,
+                "cache_write_per_million": 0.125,
+                "output_per_million": 0.5
+              },
+              {
+                "input_per_million": 0.2,
+                "cached_input_per_million": 0.02,
+                "cache_write_per_million": 0.25,
+                "output_per_million": 0.75
+              }
+            ]
+          },
           "gpt-4o": {
             "currency": "USD",
             "input_per_million": 2.5,
@@ -1597,6 +1764,24 @@
             "input_per_million": 0.15,
             "cached_input_per_million": 0.075,
             "output_per_million": 0.6
+          },
+          "claude-fable-5-2": {
+            "currency": "USD",
+            "effective_from": "2026-11-09",
+            "input_per_million": 8,
+            "output_per_million": 40,
+            "cache_write_5m_per_million": 10,
+            "cache_write_1h_per_million": 16,
+            "cached_input_per_million": 0.2
+          },
+          "claude-fable-5-1": {
+            "currency": "USD",
+            "effective_from": "2026-09-01",
+            "input_per_million": 10,
+            "output_per_million": 50,
+            "cache_write_5m_per_million": 12.5,
+            "cache_write_1h_per_million": 20,
+            "cached_input_per_million": 0.25
           },
           "claude-fable-5": {
             "currency": "USD",
@@ -1610,11 +1795,54 @@
             "cached_input_per_million": 1,
             "output_per_million": 50
           },
+          "claude-opus-5-5": {
+            "currency": "USD",
+            "effective_from": "2026-09-22",
+            "input_per_million": 4,
+            "output_per_million": 20,
+            "cache_write_5m_per_million": 5,
+            "cache_write_1h_per_million": 8,
+            "cached_input_per_million": 0.2
+          },
           "claude-opus-5": {
             "currency": "USD",
             "input_per_million": 5,
             "cached_input_per_million": 0.5,
             "output_per_million": 25
+          },
+          "claude-sonnet-5-5": {
+            "currency": "USD",
+            "input_per_million": 2,
+            "output_per_million": 10,
+            "cache_write_5m_per_million": 2.5,
+            "cache_write_1h_per_million": 4,
+            "cached_input_per_million": 0.1
+          },
+          "claude-haiku-5-5": {
+            "currency": "USD",
+            "effective_from": "2026-10-07",
+            "input_per_million": 0.1,
+            "output_per_million": 0.5,
+            "cache_write_5m_per_million": 0.125,
+            "cache_write_1h_per_million": 0.2,
+            "cached_input_per_million": 0.01,
+            "tiers": [
+              {
+                "threshold": 100000,
+                "input_per_million": 0.1,
+                "output_per_million": 0.5,
+                "cached_input_per_million": 0.01,
+                "cache_write_5m_per_million": 0.125,
+                "cache_write_1h_per_million": 0.2
+              },
+              {
+                "input_per_million": 0.5,
+                "output_per_million": 2.5,
+                "cached_input_per_million": 0.05,
+                "cache_write_5m_per_million": 0.625,
+                "cache_write_1h_per_million": 1
+              }
+            ]
           },
           "claude-sonnet-5": {
             "currency": "USD",
@@ -1710,6 +1938,33 @@
         }
       },
       "copilot-cli": {
+        "models": {
+          "grok-4.7": {
+            "currency": "USD",
+            "notes": "prompts of 200K+ input tokens bill the full request at long-context rates; -fast is 2x",
+            "input_per_million": 2,
+            "cached_input_per_million": 0.5,
+            "cache_write_per_million": 2,
+            "output_per_million": 6,
+            "tiers": [
+              {
+                "threshold": 199999,
+                "input_per_million": 2,
+                "cached_input_per_million": 0.5,
+                "cache_write_per_million": 2,
+                "output_per_million": 6
+              },
+              {
+                "input_per_million": 4,
+                "cached_input_per_million": 1,
+                "cache_write_per_million": 4,
+                "output_per_million": 12
+              }
+            ]
+          }
+        }
+      },
+      "claude-code": {
         "models": {
           "grok-4.7": {
             "currency": "USD",

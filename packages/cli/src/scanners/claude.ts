@@ -3,7 +3,7 @@ import { readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
-import type { IngestBreakdown } from '@aiusage/shared';
+import { isRoutingProvider, normalizeRoutedModel, type IngestBreakdown } from '@aiusage/shared';
 import { inferProviderFromModel, keepFilesModifiedSince, normalizeModelName, runWithConcurrency, type ProjectFields } from './utils.js';
 
 const FILE_CONCURRENCY = 16;
@@ -253,9 +253,10 @@ async function processJsonlFile(
         : undefined;
 
       const usage = message.usage;
-      let model = normalizeModelName(rawModel);
-      if (usage.speed === 'fast') model = `${model}-fast`;
-      const provider = resolveClaudeProvider(record, rawModel);
+      const routed = normalizeRoutedModel(rawModel);
+      let model = normalizeModelName(routed.model);
+      if (usage.speed === 'fast' && !model.endsWith('-fast')) model = `${model}-fast`;
+      const provider = resolveClaudeProvider(record, routed.model, routed.stripped);
       const recordFields = record.cwd ? resolveProject(record.cwd, projectAliases) : fallbackFields;
       const sessionId = record.sessionId ?? fallbackSessionId;
       const costUSD = record.costUSD ?? 0;
@@ -363,7 +364,7 @@ function clampToken(value: number | undefined): number {
   return Math.max(Number.isFinite(value) ? value! : 0, 0);
 }
 
-function resolveClaudeProvider(record: ClaudeRecord, model: string): string {
+function resolveClaudeProvider(record: ClaudeRecord, model: string, routingStripped = false): string {
   const explicit = (
     record.message?.providerId
     ?? record.message?.provider_id
@@ -372,12 +373,12 @@ function resolveClaudeProvider(record: ClaudeRecord, model: string): string {
     ?? record.provider_id
     ?? record.provider
   )?.trim().toLowerCase();
-  const prefix = model.trim().toLowerCase().match(/^([a-z0-9_-]+)\//)?.[1];
+  const prefix = routingStripped ? undefined : model.trim().toLowerCase().match(/^([a-z0-9_-]+)\//)?.[1];
   const inferred = prefix ?? inferProviderFromModel(model, 'unknown');
-  // 一些兼容层会固定写 anthropic，但模型名已明确指向其他供应商。
-  if (explicit && explicit !== 'anthropic') return explicit;
+  // 一些兼容层/路由网关会固定写 anthropic 或 group/factory，若模型名已明确指向底层供应商则优先采用推断值。
+  if (explicit && explicit !== 'anthropic' && !isRoutingProvider(explicit)) return explicit;
   if (inferred !== 'unknown') return inferred;
-  return explicit ?? 'unknown';
+  return explicit && !isRoutingProvider(explicit) ? explicit : 'unknown';
 }
 
 function parseTimestamp(value?: string): Date | null {

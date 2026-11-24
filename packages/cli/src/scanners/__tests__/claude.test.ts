@@ -173,6 +173,40 @@ describe('JSONL scanning', () => {
     expect(b.provider).toBe('model_api');
   });
 
+  it('去除 group/factory/grok 等路由前缀并按底层模型 ID 推断供应商', async () => {
+    const projectDir = join(tmpDir, 'projects', '-Users-test-project');
+    await writeJsonl(projectDir, 'session.jsonl', [
+      claudeRecord({ timestamp: '2026-11-17T10:00:00.000Z', requestId: 'req_1', model: 'claude-opus-5-5', inputTokens: 100, outputTokens: 50 }),
+      claudeRecord({ timestamp: '2026-11-17T10:01:00.000Z', requestId: 'req_2', model: 'group/auto-claude-opus-5-5', inputTokens: 200, outputTokens: 70 }),
+      claudeRecord({ timestamp: '2026-11-17T10:02:00.000Z', requestId: 'req_3', model: 'group/auto-claude-fable-5-2:high', inputTokens: 300, outputTokens: 80 }),
+      claudeRecord({ timestamp: '2026-11-17T10:03:00.000Z', requestId: 'req_4', model: 'factory/claude-fable-5.2', inputTokens: 400, outputTokens: 90 }),
+      claudeRecord({ timestamp: '2026-11-17T10:04:00.000Z', requestId: 'req_5', model: 'group/auto-grok-4-7', inputTokens: 500, outputTokens: 100 }),
+      claudeRecord({ timestamp: '2026-11-17T10:05:00.000Z', requestId: 'req_6', model: 'grok/grok-4.7', inputTokens: 600, outputTokens: 110 }),
+      claudeRecord({ timestamp: '2026-11-17T10:06:00.000Z', requestId: 'req_7', model: 'group/auto-deepseek-v4-1-flash', inputTokens: 700, outputTokens: 120 }),
+      claudeRecord({ timestamp: '2026-11-17T10:07:00.000Z', requestId: 'req_8', model: 'group/unknown-lab-model', inputTokens: 800, outputTokens: 130 }),
+    ]);
+
+    const breakdowns = (await scanClaudeDates(['2026-11-17'], join(tmpDir, 'projects'))).get('2026-11-17')!;
+    const byKey = new Map(breakdowns.map(b => [`${b.provider}/${b.model}`, b]));
+
+    expect(byKey.get('anthropic/claude-opus-5-5')).toEqual(expect.objectContaining({
+      eventCount: 2, inputTokens: 300, outputTokens: 120,
+    }));
+    expect(byKey.get('anthropic/claude-fable-5-2')).toEqual(expect.objectContaining({
+      eventCount: 2, inputTokens: 700, outputTokens: 170,
+    }));
+    expect(byKey.get('xai/grok-4.7')).toEqual(expect.objectContaining({
+      eventCount: 2, inputTokens: 1100, outputTokens: 210,
+    }));
+    expect(byKey.get('deepseek/deepseek-v4.1-flash')).toEqual(expect.objectContaining({
+      eventCount: 1, inputTokens: 700, outputTokens: 120,
+    }));
+    expect(byKey.get('unknown/unknown-lab-model')).toEqual(expect.objectContaining({
+      eventCount: 1, inputTokens: 800, outputTokens: 130,
+    }));
+    expect([...byKey.keys()].some(k => k.startsWith('group/') || k.startsWith('factory/') || k.startsWith('grok/'))).toBe(false);
+  });
+
   it('returns empty array for a date with no JSONL data and no stats-cache', async () => {
     const result = await scanClaudeDates(['2025-11-01'], join(tmpDir, 'projects'));
     expect(result.get('2025-11-01')).toEqual([]);

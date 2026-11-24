@@ -1,6 +1,8 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { IngestBreakdown } from '@aiusage/shared';
+import { inferProviderFromModel, type IngestBreakdown } from '@aiusage/shared';
+
+export { inferProviderFromModel };
 
 /** 早于此刻视为脏数据下界（2015-01-01），用于过滤被误判单位的时间戳 */
 const MIN_VALID_MS = Date.UTC(2015, 0, 1);
@@ -31,20 +33,6 @@ export async function fileModifiedTs(filePath: string): Promise<Date | null> {
   } catch {
     return null;
   }
-}
-
-/** 根据模型名推断底层供应商；无法识别时保留调用方指定的产品供应商。 */
-export function inferProviderFromModel(model: string, fallback: string): string {
-  const value = model.trim().toLowerCase();
-  if (/^(claude|opus|sonnet|haiku)(?:[-.]|$)/.test(value)) return 'anthropic';
-  if (/^(gpt|chatgpt|codex|o[134])(?:[-.]|$)/.test(value)) return 'openai';
-  if (/^gemini(?:[-.]|$)/.test(value)) return 'google';
-  if (/^qwen(?:[-.]|$)/.test(value)) return 'alibaba';
-  if (/^deepseek(?:[-.]|$)/.test(value)) return 'deepseek';
-  if (/^(glm|codegeex)(?:[-.]|$)/.test(value)) return 'zhipu';
-  if (/^(kimi|moonshot)(?:[-/.]|$)/.test(value)) return 'moonshot';
-  if (/^grok(?:[-.]|$)/.test(value)) return 'xai';
-  return fallback;
 }
 
 export function projectFromPath(raw: string, aliases?: Record<string, string>): string {

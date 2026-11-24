@@ -7,6 +7,18 @@ import type {
   CostCalcResult,
 } from './types.js';
 import { catalog as defaultCatalog } from './catalog.js';
+import { inferProviderFromModel, isRoutingProvider, normalizeRoutedModel } from './routing.js';
+
+const REFERENCE_PRODUCTS: Record<string, string> = {
+  anthropic: 'claude-code',
+  openai: 'codex',
+  google: 'gemini-cli',
+  xai: 'opencode',
+  deepseek: 'deepseek-chat',
+  zhipu: 'glm-chat',
+  moonshot: 'kimi-code',
+  alibaba: 'qwen-code',
+};
 
 /**
  * Fast 模式按 Anthropic 官方公布的独立价格折算。
@@ -173,12 +185,20 @@ export function calculateCost(
   }
 
   const antigravity = product === 'antigravity';
-  const pricedModel = antigravity ? model.replace(/-(?:none|low|medium|high|xhigh|max)$/, '') : model;
-  const referenceProducts: Record<string, string> = { google: 'gemini-cli', anthropic: 'claude-code' };
-  const pricedProduct = antigravity ? (referenceProducts[provider] ?? product) : product;
+  const routed = normalizeRoutedModel(model);
+  const normalizedModel = routed.model;
+  const pricedModel = antigravity ? normalizedModel.replace(/-(?:none|low|medium|high|xhigh|max)$/, '') : normalizedModel;
+  const pricedProvider = routed.stripped || isRoutingProvider(provider)
+    ? inferProviderFromModel(pricedModel, provider)
+    : provider;
+  const pricedProduct = antigravity
+    ? (REFERENCE_PRODUCTS[pricedProvider] ?? product)
+    : !cat.providers[pricedProvider]?.[product] && product === 'claude-code'
+      ? (REFERENCE_PRODUCTS[pricedProvider] ?? product)
+      : product;
   const { baseModel, tier } = splitServiceTierSuffix(pricedModel);
 
-  const resolved = resolveModelPricing(cat, provider, pricedProduct, baseModel);
+  const resolved = resolveModelPricing(cat, pricedProvider, pricedProduct, baseModel);
   if (!resolved) {
     return { estimatedCostUsd: 0, costStatus: 'unavailable', pricingVersion: cat.version };
   }
@@ -242,8 +262,8 @@ export function calculateCost(
   // 折算 currency → USD
   raw = toUsd(raw, pricing.currency, cat);
 
-  let multiplier = getServiceTierMultiplier(provider, product, resolvedModel, tier);
-  if (provider === 'openai' && product === 'codex' && tier === 'ultrafast'
+  let multiplier = getServiceTierMultiplier(pricedProvider, pricedProduct, resolvedModel, tier);
+  if (pricedProvider === 'openai' && pricedProduct === 'codex' && tier === 'ultrafast'
       && (resolvedModel === 'gpt-6.2-astra' || resolvedModel === 'gpt-6.2-sol')) {
     const { usageTime } = options;
     if (typeof usageTime === 'string') {

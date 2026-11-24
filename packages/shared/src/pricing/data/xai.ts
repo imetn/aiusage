@@ -39,4 +39,5 @@ const models: Record<string, ModelPricing> = {
 export const xai: Record<string, ProductPricing> = {
   opencode: { models },
   'copilot-cli': { models },
+  'claude-code': { models },
 };

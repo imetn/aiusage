@@ -114,6 +114,27 @@ export async function handleIngest(request: Request, env: Env): Promise<Response
         .bind(tokenPayload.deviceId, day.usageDate));
     }
 
+    if (day.breakdowns.some(b => b.product === 'claude-code' && b.channel === 'cli')) {
+      // Older CLI versions uploaded routed Claude Code models with gateway prefixes
+      // (e.g. group/auto-*, factory/*, grok/*) as provider/model. Remove those legacy
+      // rows before upserting the day's Claude Code CLI snapshot so normalized uploads
+      // cannot double-count against stale rows.
+      statements.push(env.DB.prepare(`
+        DELETE FROM daily_usage_breakdown
+        WHERE device_id = ? AND usage_date = ?
+          AND product = 'claude-code' AND channel = 'cli'
+          AND (
+            provider IN ('group', 'factory', 'auto', 'opensource', 'grok')
+            OR model LIKE 'group/%'
+            OR model LIKE 'factory/%'
+            OR model LIKE 'auto/%'
+            OR model LIKE 'opensource/%'
+            OR model LIKE 'grok/%'
+          )
+      `)
+        .bind(tokenPayload.deviceId, day.usageDate));
+    }
+
     for (const { breakdown: b, cost, cacheWrite5mTokens, cacheWrite1hTokens } of breakdownsWithCost) {
       const rawProject = b.project || 'unknown';
       const isFullPath = rawProject.startsWith('/') || /^[A-Z]:\\/i.test(rawProject);
