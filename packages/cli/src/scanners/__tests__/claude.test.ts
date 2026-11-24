@@ -207,6 +207,44 @@ describe('JSONL scanning', () => {
     expect([...byKey.keys()].some(k => k.startsWith('group/') || k.startsWith('factory/') || k.startsWith('grok/'))).toBe(false);
   });
 
+  it('跨文件去重同一 message.id 的有/无 requestId 副本，同时保留同 message.id 不同 requestId', async () => {
+    const dirA = join(tmpDir, 'projects', '-Users-test-a');
+    const dirB = join(tmpDir, 'projects', '-Users-test-b');
+    await writeJsonl(dirA, 'a.jsonl', [
+      {
+        type: 'assistant', timestamp: '2026-11-23T11:30:36.000Z', cwd: '/Users/test/a',
+        requestId: 'req_1',
+        message: { id: 'msg_shared', model: 'claude-fable-5-2', usage: { input_tokens: 10, output_tokens: 600 } },
+      },
+      {
+        type: 'assistant', timestamp: '2026-11-23T11:31:00.000Z', cwd: '/Users/test/a',
+        message: { id: 'msg_reverse', model: 'claude-fable-5-2', usage: { input_tokens: 20, output_tokens: 400 } },
+      },
+    ]);
+    await writeJsonl(dirB, 'b.jsonl', [
+      {
+        type: 'assistant', timestamp: '2026-11-23T11:30:36.500Z', cwd: '/Users/test/b',
+        message: { id: 'msg_shared', model: 'claude-fable-5-2', usage: { input_tokens: 10, output_tokens: 600 } },
+      },
+      {
+        type: 'assistant', timestamp: '2026-11-23T11:31:00.500Z', cwd: '/Users/test/b',
+        requestId: 'req_reverse',
+        message: { id: 'msg_reverse', model: 'claude-fable-5-2', usage: { input_tokens: 20, output_tokens: 400 } },
+      },
+      {
+        type: 'assistant', timestamp: '2026-11-23T11:32:00.000Z', cwd: '/Users/test/b',
+        requestId: 'req_2',
+        message: { id: 'msg_shared', model: 'claude-fable-5-2', usage: { input_tokens: 5, output_tokens: 100 } },
+      },
+    ]);
+
+    const breakdowns = (await scanClaudeDates(['2026-11-23'], join(tmpDir, 'projects'))).get('2026-11-23')!;
+    const totalEvents = breakdowns.reduce((s, b) => s + b.eventCount, 0);
+    const totalOutput = breakdowns.reduce((s, b) => s + b.outputTokens, 0);
+    expect(totalEvents).toBe(3); // msg_shared:req_1 + msg_reverse + msg_shared:req_2
+    expect(totalOutput).toBe(1100);
+  });
+
   it('returns empty array for a date with no JSONL data and no stats-cache', async () => {
     const result = await scanClaudeDates(['2025-11-01'], join(tmpDir, 'projects'));
     expect(result.get('2025-11-01')).toEqual([]);

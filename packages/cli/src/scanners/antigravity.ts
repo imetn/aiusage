@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { IngestBreakdown } from '@aiusage/shared';
@@ -30,14 +30,42 @@ async function entries(path: string) {
   }
 }
 
+export async function discoverAntigravityRoots(baseDir?: string, homeDir = homedir()): Promise<string[]> {
+  if (baseDir) return [baseDir];
+  const candidates = ['antigravity', 'antigravity-cli', 'antigravity-ide'].map(name => join(homeDir, '.gemini', name));
+  const t3ProvidersDir = join(homeDir, '.t3', 'userdata', 'providers', 'antigravity');
+  try {
+    const providerEntries = (await readdir(t3ProvidersDir, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of providerEntries) {
+      candidates.push(join(t3ProvidersDir, entry.name, 'antigravity-acp'));
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error('Antigravity history directory could not be read; sync was stopped to preserve previous uploads', { cause: error });
+    }
+  }
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const candidate of candidates) {
+    let canonical = candidate;
+    try { canonical = await realpath(candidate); } catch { /* Missing roots are skipped later. */ }
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    unique.push(candidate);
+  }
+  return unique;
+}
+
 async function readAntigravityData(baseDir?: string): Promise<AntigravityData> {
-  const roots = baseDir ? [baseDir] : ['antigravity', 'antigravity-cli', 'antigravity-ide'].map(name => join(homedir(), '.gemini', name));
+  const roots = await discoverAntigravityRoots(baseDir);
   const records: AntigravityUsage[] = [];
   const contexts = new Map<string, UsageContext>();
   const legacy = new Map<string, { timestamp: Date; channel: 'cli' | 'ide' }>();
   const sessionsWithUsage = new Set<string>();
   for (const root of roots) {
-    const channel = root.endsWith('antigravity-cli') ? 'cli' : 'ide';
+    const channel = root.endsWith('antigravity-cli') || root.endsWith('antigravity-acp') ? 'cli' : 'ide';
     const dates = new Map<string, Date>();
     await collectBrainSessionDates(join(root, 'brain'), dates);
     await collectBrowserSessionDates(join(root, 'browser_recordings'), dates);

@@ -7,6 +7,7 @@ import { getScheduleStatus } from './schedule.js';
 import { resolveKimiCodeHome } from './scanners/kimi.js';
 import { resolveTraeNativeCacheDir, resolveTokscaleTraeCacheDir } from './scanners/trae.js';
 import { detectOpenCodeSqliteRuntime, resolveOpenCodeSources } from './scanners/opencode.js';
+import { discoverAntigravityRoots } from './scanners/antigravity.js';
 import { discoverClaudeProjectDirs } from './scanners/claude.js';
 import type { Lang } from './i18n.js';
 
@@ -161,6 +162,7 @@ export async function runDoctor(lang: Lang = 'zh'): Promise<Check[]> {
   const g3 = s.groupTools;
   const home = homedir();
   const claudeProjectDirs = await discoverClaudeProjectDirs();
+  const antigravityRoots = await discoverAntigravityRoots();
   const tools: ToolDef[] = [
     { dirs: claudeProjectDirs, label: 'Claude Code', exts: ['.jsonl'] },
     { dirs: [join(home, '.codex')], label: 'Codex CLI', exts: ['.jsonl'] },
@@ -175,7 +177,7 @@ export async function runDoctor(lang: Lang = 'zh'): Promise<Check[]> {
       exts: ['.log', '.json', '.jsonl'],
     },
     { dirs: [join(home, '.gemini', 'tmp')], label: 'Gemini CLI', exts: ['.json', '.jsonl'] },
-    { dirs: ['antigravity', 'antigravity-cli', 'antigravity-ide'].map(dir => join(home, '.gemini', dir)), label: 'Antigravity', exts: ['.json', '.db', '.pb'] },
+    { dirs: antigravityRoots, label: 'Antigravity', exts: ['.json', '.db', '.pb'] },
     { dirs: [join(home, '.qwen', 'projects'), join(home, '.qwen', 'tmp')], label: 'Qwen Code', exts: ['.jsonl'] },
     { dirs: [join(resolveKimiCodeHome(home), 'sessions')], label: 'Kimi Code', exts: ['.jsonl'] },
     { dirs: [join(home, '.kimi', 'sessions')], label: 'Kimi CLI (legacy)', exts: ['.jsonl'] },

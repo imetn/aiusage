@@ -147,8 +147,9 @@ export async function scanClaudeDates(
   const baseDirs = await discoverClaudeProjectDirs(claudeDir);
 
   // Claude Code 某些代理/兼容模型没有 requestId，但仍会把同一 messageId
-  // 复制到父会话和 sidechain 文件；此时退化为 message.id 去重。
+  // 复制到父会话和 sidechain 文件；此时退化为 message.id 去重，并跨有/无 requestId 副本共享。
   const processedHashes = new Map<string, ClaudeSeenUsage>();
+  const processedByMessageId = new Map<string, ClaudeSeenUsage>();
 
   // Track distinct sessions per "date|model|project" group
   const sessionSets = new Map<string, Set<string>>();
@@ -185,7 +186,7 @@ export async function scanClaudeDates(
 
   // 并发流式处理文件，直接聚合到 groupedByDate
   await runWithConcurrency(recentJobs, FILE_CONCURRENCY, async (job) => {
-    await processJsonlFile(job.filePath, job.projectFields, targetDateSet, projectAliases, groupedByDate, processedHashes, sessionSets);
+    await processJsonlFile(job.filePath, job.projectFields, targetDateSet, projectAliases, groupedByDate, processedHashes, processedByMessageId, sessionSets);
   });
 
   // Assign session counts from collected sessionSets
@@ -209,6 +210,7 @@ async function processJsonlFile(
   projectAliases: Record<string, string> | undefined,
   groupedByDate: Map<string, Map<string, IngestBreakdown>>,
   processedHashes: Map<string, ClaudeSeenUsage>,
+  processedByMessageId: Map<string, ClaudeSeenUsage>,
   sessionSets: Map<string, Set<string>>,
 ): Promise<void> {
   // Derive fallback sessionId from filename (e.g. "abc-123.jsonl" → "abc-123")
@@ -283,9 +285,19 @@ async function processJsonlFile(
         costUSD: clampToken(costUSD),
       };
       const cacheWriteTokens = snapshot.cacheWrite;
-      const seen = hash ? processedHashes.get(hash) : undefined;
+      const fallbackMessageHash = messageId ? `message:${messageId}` : undefined;
+      const seen = hash
+        ? (requestId
+            ? (processedHashes.get(hash) ?? (fallbackMessageHash ? processedHashes.get(fallbackMessageHash) : undefined))
+            : (processedHashes.get(hash) ?? (messageId ? processedByMessageId.get(messageId) : undefined)))
+        : undefined;
       if (seen) {
         mergeClaudeDuplicate(seen, snapshot);
+        if (requestId && hash) {
+          processedHashes.set(hash, seen);
+          if (fallbackMessageHash) processedHashes.delete(fallbackMessageHash);
+        }
+        if (messageId && !processedByMessageId.has(messageId)) processedByMessageId.set(messageId, seen);
         continue;
       }
       const key = `${provider}|${model}|${recordFields.project}`;
@@ -305,7 +317,9 @@ async function processJsonlFile(
         existing.cacheWrite1hTokens = (existing.cacheWrite1hTokens ?? 0) + snapshot.cache1h;
         existing.outputTokens += snapshot.output;
         existing.costUSD = (existing.costUSD ?? 0) + snapshot.costUSD;
-        if (hash) processedHashes.set(hash, { breakdown: existing, snapshot });
+        const entry: ClaudeSeenUsage = { breakdown: existing, snapshot };
+        if (hash) processedHashes.set(hash, entry);
+        if (messageId && !processedByMessageId.has(messageId)) processedByMessageId.set(messageId, entry);
       } else {
         const breakdown: IngestBreakdown = {
           provider,
@@ -326,7 +340,9 @@ async function processJsonlFile(
           costUSD: snapshot.costUSD,
         };
         grouped.set(key, breakdown);
-        if (hash) processedHashes.set(hash, { breakdown, snapshot });
+        const entry: ClaudeSeenUsage = { breakdown, snapshot };
+        if (hash) processedHashes.set(hash, entry);
+        if (messageId && !processedByMessageId.has(messageId)) processedByMessageId.set(messageId, entry);
       }
     }
   } catch {

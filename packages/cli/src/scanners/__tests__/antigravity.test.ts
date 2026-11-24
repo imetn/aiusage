@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { scanAntigravityDates } from '../antigravity.js';
+import { discoverAntigravityRoots, scanAntigravityDates } from '../antigravity.js';
 
 let tmpDir: string;
 
@@ -102,5 +102,19 @@ describe('scanAntigravityDates', () => {
   it('returns empty results when no Antigravity metadata exists', async () => {
     const result = await scanAntigravityDates(['2026-02-10'], join(tmpDir, 'missing'));
     expect(result.get('2026-02-10')).toEqual([]);
+  });
+
+  it('discovers T3 Code antigravity-acp roots alongside standard Gemini roots', async () => {
+    const fakeHome = join(tmpDir, 'home');
+    const t3Root = join(fakeHome, '.t3', 'userdata', 'providers', 'antigravity', 'acct-hash-1', 'antigravity-acp');
+    await mkdir(t3Root, { recursive: true });
+
+    const roots = await discoverAntigravityRoots(undefined, fakeHome);
+    expect(roots).toEqual(expect.arrayContaining([
+      join(fakeHome, '.gemini', 'antigravity'),
+      join(fakeHome, '.gemini', 'antigravity-cli'),
+      join(fakeHome, '.gemini', 'antigravity-ide'),
+      t3Root,
+    ]));
   });
 });
