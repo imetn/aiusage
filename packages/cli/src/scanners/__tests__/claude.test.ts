@@ -245,6 +245,57 @@ describe('JSONL scanning', () => {
     expect(totalOutput).toBe(1100);
   });
 
+  it('统计 usage.iterations 中的 advisor_message 嵌套模型用量并正确去重', async () => {
+    const projectDir = join(tmpDir, 'projects', '-Users-test-project');
+    const recordWithAdvisor = {
+      type: 'assistant',
+      timestamp: '2026-11-17T12:00:00.000Z',
+      requestId: 'req_adv_1',
+      cwd: '/Users/test/project',
+      message: {
+        id: 'msg_adv_1',
+        model: 'claude-sonnet-5-5',
+        usage: {
+          input_tokens: 1_000,
+          output_tokens: 200,
+          cache_read_input_tokens: 5_000,
+          iterations: [
+            {
+              type: 'message',
+              input_tokens: 1_000,
+              output_tokens: 200,
+            },
+            {
+              type: 'advisor_message',
+              model: 'claude-opus-5-5',
+              input_tokens: 2_000,
+              output_tokens: 400,
+              cache_read_input_tokens: 3_000,
+              cache_creation_input_tokens: 500,
+            },
+          ],
+        },
+      },
+    };
+    await writeJsonl(projectDir, 'session.jsonl', [recordWithAdvisor, recordWithAdvisor]);
+
+    const breakdowns = (await scanClaudeDates(['2026-11-17'], join(tmpDir, 'projects'))).get('2026-11-17')!;
+    const byModel = new Map(breakdowns.map((b) => [b.model, b]));
+    expect(byModel.get('claude-sonnet-5-5')).toMatchObject({
+      eventCount: 1,
+      inputTokens: 1_000,
+      cachedInputTokens: 5_000,
+      outputTokens: 200,
+    });
+    expect(byModel.get('claude-opus-5-5')).toMatchObject({
+      eventCount: 1,
+      inputTokens: 2_000,
+      cachedInputTokens: 3_000,
+      cacheWriteTokens: 500,
+      outputTokens: 400,
+    });
+  });
+
   it('returns empty array for a date with no JSONL data and no stats-cache', async () => {
     const result = await scanClaudeDates(['2025-11-01'], join(tmpDir, 'projects'));
     expect(result.get('2025-11-01')).toEqual([]);

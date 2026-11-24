@@ -47,6 +47,8 @@ import ampIcon from '@lobehub/icons-static-svg/icons/amp-color.svg?url';
 import cursorIcon from '@lobehub/icons-static-svg/icons/cursor.svg?url';
 import opencodeIcon from '@lobehub/icons-static-svg/icons/opencode.svg?url';
 import moonshotIcon from '@lobehub/icons-static-svg/icons/moonshot.svg?url';
+import grokIcon from '@lobehub/icons-static-svg/icons/grok.svg?url';
+import xaiIcon from '@lobehub/icons-static-svg/icons/xai.svg?url';
 
 // ────────────────────────────────────────
 // Constants
@@ -97,6 +99,7 @@ function productIcon(value: string): FilterIconAsset | undefined {
   if (id.includes('amp')) return colorIcon(ampIcon);
   if (id.includes('cursor')) return monoIcon(cursorIcon);
   if (id.includes('opencode')) return monoIcon(opencodeIcon);
+  if (id.includes('grok')) return monoIcon(grokIcon);
   return undefined;
 }
 
@@ -113,6 +116,8 @@ function modelIcon(value: string, label: string): FilterIconAsset {
   if (id.includes('qwen') || id.includes('通义')) return colorIcon(qwenIcon);
   if (id.includes('copilot')) return monoIcon(copilotIcon);
   if (id.includes('trae')) return colorIcon(traeIcon);
+  if (id.includes('grok')) return monoIcon(grokIcon);
+  if (id.includes('xai')) return monoIcon(xaiIcon);
   if (id.includes('gpt') || /\bo\d/.test(id) || id.includes('openai')) return monoIcon(openaiIcon);
   return componentIcon(BrainCircuit);
 }

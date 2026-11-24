@@ -11,6 +11,19 @@ const MAX_LINE_BYTES = 64 * 1024 * 1024; // 64 MB
 const MAX_COWORK_DISCOVERY_DEPTH = 8;
 const COWORK_IGNORED_DIRS = new Set(['rpm', 'skills']);
 
+interface ClaudeUsageIteration {
+  type?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  };
+}
+
 interface ClaudeRecord {
   timestamp?: string;
   requestId?: string;
@@ -38,6 +51,7 @@ interface ClaudeRecord {
         ephemeral_1h_input_tokens?: number;
       };
       speed?: 'standard' | 'fast';
+      iterations?: ClaudeUsageIteration[];
     };
   };
 }
@@ -255,94 +269,124 @@ async function processJsonlFile(
         : undefined;
 
       const usage = message.usage;
-      const routed = normalizeRoutedModel(rawModel);
-      let model = normalizeModelName(routed.model);
-      if (usage.speed === 'fast' && !model.endsWith('-fast')) model = `${model}-fast`;
-      const provider = resolveClaudeProvider(record, routed.model, routed.stripped);
       const recordFields = record.cwd ? resolveProject(record.cwd, projectAliases) : fallbackFields;
       const sessionId = record.sessionId ?? fallbackSessionId;
       const costUSD = record.costUSD ?? 0;
 
-      const cacheCreation = usage.cache_creation;
-      let cache5m = cacheCreation?.ephemeral_5m_input_tokens ?? 0;
-      const cache1h = cacheCreation?.ephemeral_1h_input_tokens ?? 0;
-      // 无明细时退化到总量
-      if (cache5m === 0 && cache1h === 0 && (usage.cache_creation_input_tokens ?? 0) > 0) {
-        cache5m = usage.cache_creation_input_tokens!;
-      }
-
       const grouped = groupedByDate.get(usageDate);
       if (!grouped) continue;
 
-      const snapshot: ClaudeUsageSnapshot = {
-        input: clampToken(usage.input_tokens),
-        cached: clampToken(usage.cache_read_input_tokens),
-        cacheWrite: clampToken(usage.cache_creation_input_tokens)
-          || clampToken(cache5m) + clampToken(cache1h),
-        cache5m: clampToken(cache5m),
-        cache1h: clampToken(cache1h),
-        output: clampToken(usage.output_tokens),
-        costUSD: clampToken(costUSD),
-      };
-      const cacheWriteTokens = snapshot.cacheWrite;
-      const fallbackMessageHash = messageId ? `message:${messageId}` : undefined;
-      const seen = hash
-        ? (requestId
-            ? (processedHashes.get(hash) ?? (fallbackMessageHash ? processedHashes.get(fallbackMessageHash) : undefined))
-            : (processedHashes.get(hash) ?? (messageId ? processedByMessageId.get(messageId) : undefined)))
-        : undefined;
-      if (seen) {
-        mergeClaudeDuplicate(seen, snapshot);
-        if (requestId && hash) {
-          processedHashes.set(hash, seen);
-          if (fallbackMessageHash) processedHashes.delete(fallbackMessageHash);
+      const recordUsageEntry = (
+        entryRawModel: string,
+        entryUsage: {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_input_tokens?: number;
+          cache_creation_input_tokens?: number;
+          cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number };
+        },
+        entryCostUSD: number,
+        entryMessageId: string | undefined,
+        entryHash: string | undefined,
+        entryFallbackMessageHash: string | undefined,
+      ) => {
+        const routed = normalizeRoutedModel(entryRawModel);
+        let model = normalizeModelName(routed.model);
+        if (usage.speed === 'fast' && !model.endsWith('-fast')) model = `${model}-fast`;
+        const provider = resolveClaudeProvider(record, routed.model, routed.stripped);
+
+        const cacheCreation = entryUsage.cache_creation;
+        let cache5m = cacheCreation?.ephemeral_5m_input_tokens ?? 0;
+        const cache1h = cacheCreation?.ephemeral_1h_input_tokens ?? 0;
+        if (cache5m === 0 && cache1h === 0 && (entryUsage.cache_creation_input_tokens ?? 0) > 0) {
+          cache5m = entryUsage.cache_creation_input_tokens!;
         }
-        if (messageId && !processedByMessageId.has(messageId)) processedByMessageId.set(messageId, seen);
-        continue;
-      }
-      const key = `${provider}|${model}|${recordFields.project}`;
 
-      // Track distinct sessions per group
-      const sessionSetKey = `${usageDate}|${key}`;
-      if (!sessionSets.has(sessionSetKey)) sessionSets.set(sessionSetKey, new Set());
-      sessionSets.get(sessionSetKey)!.add(sessionId);
-
-      const existing = grouped.get(key);
-      if (existing) {
-        existing.eventCount += 1;
-        existing.inputTokens += snapshot.input;
-        existing.cachedInputTokens += snapshot.cached;
-        existing.cacheWriteTokens += cacheWriteTokens;
-        existing.cacheWrite5mTokens = (existing.cacheWrite5mTokens ?? 0) + snapshot.cache5m;
-        existing.cacheWrite1hTokens = (existing.cacheWrite1hTokens ?? 0) + snapshot.cache1h;
-        existing.outputTokens += snapshot.output;
-        existing.costUSD = (existing.costUSD ?? 0) + snapshot.costUSD;
-        const entry: ClaudeSeenUsage = { breakdown: existing, snapshot };
-        if (hash) processedHashes.set(hash, entry);
-        if (messageId && !processedByMessageId.has(messageId)) processedByMessageId.set(messageId, entry);
-      } else {
-        const breakdown: IngestBreakdown = {
-          provider,
-          product: 'claude-code',
-          channel: 'cli',
-          model,
-          project: recordFields.project,
-          projectDisplay: recordFields.projectDisplay,
-          projectAlias: recordFields.projectAlias,
-          eventCount: 1,
-          inputTokens: snapshot.input,
-          cachedInputTokens: snapshot.cached,
-          cacheWriteTokens,
-          cacheWrite5mTokens: snapshot.cache5m,
-          cacheWrite1hTokens: snapshot.cache1h,
-          outputTokens: snapshot.output,
-          reasoningOutputTokens: 0,
-          costUSD: snapshot.costUSD,
+        const snapshot: ClaudeUsageSnapshot = {
+          input: clampToken(entryUsage.input_tokens),
+          cached: clampToken(entryUsage.cache_read_input_tokens),
+          cacheWrite: clampToken(entryUsage.cache_creation_input_tokens)
+            || clampToken(cache5m) + clampToken(cache1h),
+          cache5m: clampToken(cache5m),
+          cache1h: clampToken(cache1h),
+          output: clampToken(entryUsage.output_tokens),
+          costUSD: clampToken(entryCostUSD),
         };
-        grouped.set(key, breakdown);
-        const entry: ClaudeSeenUsage = { breakdown, snapshot };
-        if (hash) processedHashes.set(hash, entry);
-        if (messageId && !processedByMessageId.has(messageId)) processedByMessageId.set(messageId, entry);
+        const cacheWriteTokens = snapshot.cacheWrite;
+        const seen = entryHash
+          ? (requestId
+              ? (processedHashes.get(entryHash) ?? (entryFallbackMessageHash ? processedHashes.get(entryFallbackMessageHash) : undefined))
+              : (processedHashes.get(entryHash) ?? (entryMessageId ? processedByMessageId.get(entryMessageId) : undefined)))
+          : undefined;
+        if (seen) {
+          mergeClaudeDuplicate(seen, snapshot);
+          if (requestId && entryHash) {
+            processedHashes.set(entryHash, seen);
+            if (entryFallbackMessageHash) processedHashes.delete(entryFallbackMessageHash);
+          }
+          if (entryMessageId && !processedByMessageId.has(entryMessageId)) processedByMessageId.set(entryMessageId, seen);
+          return;
+        }
+        const key = `${provider}|${model}|${recordFields.project}`;
+
+        const sessionSetKey = `${usageDate}|${key}`;
+        if (!sessionSets.has(sessionSetKey)) sessionSets.set(sessionSetKey, new Set());
+        sessionSets.get(sessionSetKey)!.add(sessionId);
+
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.eventCount += 1;
+          existing.inputTokens += snapshot.input;
+          existing.cachedInputTokens += snapshot.cached;
+          existing.cacheWriteTokens += cacheWriteTokens;
+          existing.cacheWrite5mTokens = (existing.cacheWrite5mTokens ?? 0) + snapshot.cache5m;
+          existing.cacheWrite1hTokens = (existing.cacheWrite1hTokens ?? 0) + snapshot.cache1h;
+          existing.outputTokens += snapshot.output;
+          existing.costUSD = (existing.costUSD ?? 0) + snapshot.costUSD;
+          const entry: ClaudeSeenUsage = { breakdown: existing, snapshot };
+          if (entryHash) processedHashes.set(entryHash, entry);
+          if (entryMessageId && !processedByMessageId.has(entryMessageId)) processedByMessageId.set(entryMessageId, entry);
+        } else {
+          const breakdown: IngestBreakdown = {
+            provider,
+            product: 'claude-code',
+            channel: 'cli',
+            model,
+            project: recordFields.project,
+            projectDisplay: recordFields.projectDisplay,
+            projectAlias: recordFields.projectAlias,
+            eventCount: 1,
+            inputTokens: snapshot.input,
+            cachedInputTokens: snapshot.cached,
+            cacheWriteTokens,
+            cacheWrite5mTokens: snapshot.cache5m,
+            cacheWrite1hTokens: snapshot.cache1h,
+            outputTokens: snapshot.output,
+            reasoningOutputTokens: 0,
+            costUSD: snapshot.costUSD,
+          };
+          grouped.set(key, breakdown);
+          const entry: ClaudeSeenUsage = { breakdown, snapshot };
+          if (entryHash) processedHashes.set(entryHash, entry);
+          if (entryMessageId && !processedByMessageId.has(entryMessageId)) processedByMessageId.set(entryMessageId, entry);
+        }
+      };
+
+      const fallbackMessageHash = messageId ? `message:${messageId}` : undefined;
+      recordUsageEntry(rawModel, usage, costUSD, messageId, hash, fallbackMessageHash);
+
+      // Top-level `usage` covers the executor alone; advisor calls run on another model and
+      // appear only inside `usage.iterations` with type === 'advisor_message'.
+      if (Array.isArray(usage.iterations)) {
+        for (const [index, iteration] of usage.iterations.entries()) {
+          if (!iteration || iteration.type !== 'advisor_message') continue;
+          const advisorModel = typeof iteration.model === 'string' ? iteration.model.trim() : '';
+          if (!advisorModel || advisorModel === '<synthetic>') continue;
+          const advisorMsgId = messageId ? `${messageId}:advisor:${index}` : undefined;
+          const advisorHash = hash ? `${hash}:advisor:${index}` : undefined;
+          const advisorFallbackHash = fallbackMessageHash ? `${fallbackMessageHash}:advisor:${index}` : undefined;
+          recordUsageEntry(advisorModel, iteration, 0, advisorMsgId, advisorHash, advisorFallbackHash);
+        }
       }
     }
   } catch {

@@ -25,6 +25,7 @@ export interface AntigravityUsage {
   output: number;
   reasoning: number;
   model: string;
+  modelId?: number;
   timestamp: Date | null;
   responseId: string;
   providerMessageId: string;
@@ -40,6 +41,75 @@ export interface AntigravityConversation {
   sessionId: string;
   project: string;
   records: AntigravityUsage[];
+  learnedModels?: Map<number, string | null>;
+}
+
+/**
+ * Offline fallback for Antigravity numeric model IDs when records omit string model names.
+ * Cross-checked against T3 Code's antigravityUsageReader.ts.
+ */
+export const ANTIGRAVITY_MODEL_IDS: Readonly<Record<number, string>> = {
+  246: 'gemini-2.5-pro',
+  312: 'gemini-2.5-flash',
+  313: 'gemini-2.5-flash-thinking',
+  329: 'gemini-2.5-flash-thinking',
+  330: 'gemini-2.5-flash-lite',
+  281: 'claude-sonnet-4',
+  282: 'claude-sonnet-4',
+  290: 'claude-opus-4',
+  291: 'claude-opus-4',
+  333: 'claude-sonnet-4-5',
+  334: 'claude-sonnet-4-5',
+  340: 'claude-haiku-4-5',
+  341: 'claude-haiku-4-5',
+  342: 'gpt-oss-120b-medium',
+  1026: 'claude-opus-4-6',
+  1035: 'claude-sonnet-4-6',
+  1016: 'gemini-3.1-pro',
+  1036: 'gemini-3.1-pro',
+  1037: 'gemini-3.1-pro',
+  1018: 'gemini-3-flash-preview',
+  1084: 'gemini-3-flash-preview',
+  1047: 'gemini-3-flash-preview',
+  1020: 'gemini-3.5-flash-medium',
+  1021: 'gemini-3.1-flash-image',
+  1050: 'gemini-3.1-flash-lite',
+  1071: 'gemini-3.6-flash-high',
+  1072: 'gemini-3.6-flash-medium',
+  1073: 'gemini-3.6-flash-low',
+  1132: 'gemini-3.5-flash-high',
+  1133: 'gemini-3.5-flash-high',
+  1187: 'gemini-3.5-flash-extra-low',
+  1196: 'gemini-3.6-flash',
+  1266: 'gemini-3.6-flash',
+  1298: 'gemini-3.7-flash-high',
+  1299: 'gemini-3.7-flash-medium',
+  1300: 'gemini-3.7-flash-low',
+  1301: 'gemini-3.7-flash-tiered',
+  1318: 'gemini-3.8-flash-high',
+  1319: 'gemini-3.8-flash-medium',
+  1320: 'gemini-3.8-flash-low',
+  1322: 'gemini-3.8-flash-tiered',
+  1402: 'claude-opus-5-5',
+  1417: 'gemini-4-argon',
+  1418: 'gemini-4-argon',
+  1419: 'gemini-4-argon',
+  1537: 'gemini-pro-orchestrator-neon',
+};
+
+export function isConcreteAntigravityModel(model: string): boolean {
+  return /^(?:gemini-\d|claude-(?:sonnet|opus|haiku|fable|mythos)-\d|gpt-)/.test(model)
+    && !/^gemini-3-flash-(?:agent(?:-[ab])?|[ab])$/.test(model);
+}
+
+export function rememberAntigravityModel(
+  models: Map<number, string | null>,
+  id: number | undefined,
+  model: string | null,
+): void {
+  if (!id || id <= 0) return;
+  const previous = models.get(id);
+  models.set(id, previous === undefined || previous === model ? model : null);
 }
 
 let sqliteModule: Promise<SqliteModule | null> | undefined;
@@ -148,9 +218,11 @@ function usage(fields: Fields, model: string, timestamp: Date | null, fallbackId
   const reasoning = totalOutput - output;
   if (input + cached + cacheWrite + totalOutput === 0) return null;
   const modelId = number(fields, 1);
-  if (model === 'unknown' && modelId) model = `antigravity-model-${modelId}`;
+  if (model === 'unknown' && modelId) model = ANTIGRAVITY_MODEL_IDS[modelId] ?? `antigravity-model-${modelId}`;
   return {
-    input, cached, cacheWrite, output, reasoning, model, timestamp, fallbackId,
+    input, cached, cacheWrite, output, reasoning, model,
+    ...(modelId ? { modelId } : {}),
+    timestamp, fallbackId,
     responseId: text(fields, 11), providerMessageId: text(fields, 12), messageId: text(fields, 7),
   };
 }
@@ -310,7 +382,8 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
     return { ...record, identityScope: sessionId,
       sourceId: `${fingerprints.get(`${kind}:${idx}`)}:${attempt.join(':')}` };
   };
-  const steps = new Map<number, { timestamp: Date | null; model: string; fields: Fields }>();
+  const steps = new Map<number, { timestamp: Date | null; model: string; modelId?: number; fields: Fields }>();
+  const learnedModels = new Map<number, string | null>();
   let project = 'unknown';
   for (const row of rows) {
     if (!row.value) continue;
@@ -319,8 +392,13 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
       const modelInfo = message(fields, 24);
       const modelId = number(modelInfo, 1);
       const rawModel = text(modelInfo, 12) || text(modelInfo, 8);
+      const normalized = rawModel ? normalizeAntigravityModel(rawModel) : '';
+      if (modelId && isConcreteAntigravityModel(normalized)) {
+        rememberAntigravityModel(learnedModels, modelId, normalized);
+      }
       steps.set(row.idx, { fields, timestamp: clock(message(fields, 1)) ?? clock(message(fields, 8)),
-        model: rawModel ? normalizeAntigravityModel(rawModel) : modelId ? `antigravity-model-${modelId}` : 'unknown' });
+        modelId,
+        model: normalized || (modelId ? (ANTIGRAVITY_MODEL_IDS[modelId] ?? `antigravity-model-${modelId}`) : 'unknown') });
     } else if (row.kind === 'workspace') {
       const uri = text(message(fields, 1), 1);
       if (uri.startsWith('file://')) {
@@ -333,20 +411,26 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
   for (const row of rows.filter(row => row.kind === 'gen' && row.value)) {
     const chat = message(decodeAntigravityMessage(Buffer.from(row.value, 'hex')), 1);
     const step = steps.get(row.idx);
+    const genModelId = number(chat, 3) || step?.modelId;
     const model = callModel(text(chat, 21), text(chat, 19), step?.model ?? 'unknown');
+    if (genModelId && isConcreteAntigravityModel(model)) {
+      rememberAntigravityModel(learnedModels, genModelId, model);
+    }
     const timestamp = clock(message(message(chat, 9), 4)) ?? step?.timestamp ?? null;
     const fallback = `${sessionId}:gen:${row.idx}`;
     const record = usage(message(chat, 4), model, timestamp, fallback);
     const attempts = [...(record ? [record] : []), ...retries(chat, 17, model, timestamp, fallback)];
     for (const attempt of attempts) {
-      generatorSlots.set(attempt.fallbackId, records.length);
-      records.push(withSource(attempt));
+      const enriched = !attempt.modelId && genModelId ? { ...attempt, modelId: genModelId } : attempt;
+      generatorSlots.set(enriched.fallbackId, records.length);
+      records.push(withSource(enriched));
     }
   }
-  for (const [idx, { fields, model, timestamp }] of steps) {
+  for (const [idx, { fields, model, modelId, timestamp }] of steps) {
     const fallback = `${sessionId}:step:${idx}`;
     const current = usage(message(fields, 9), model, timestamp, fallback);
-    for (const record of [...(current ? [current] : []), ...retries(fields, 28, model, timestamp, fallback)]) {
+    for (const rawRecord of [...(current ? [current] : []), ...retries(fields, 28, model, timestamp, fallback)]) {
+      const record = !rawRecord.modelId && modelId ? { ...rawRecord, modelId } : rawRecord;
       const generatorIndex = generatorSlots.get(record.fallbackId.replace(`${sessionId}:step:`, `${sessionId}:gen:`));
       const generator = generatorIndex === undefined ? undefined : records[generatorIndex];
       // Same-index carriers/attempt slots supply a fallback identity when
@@ -360,5 +444,5 @@ export async function readAntigravityConversation(path: string): Promise<Antigra
   for (const record of unique) {
     if (!record.timestamp) throw new Error('Antigravity token usage has no per-call timestamp');
   }
-  return { sessionId, project, records: unique };
+  return { sessionId, project, records: unique, learnedModels };
 }

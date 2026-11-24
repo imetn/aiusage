@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { discoverAntigravityRoots, scanAntigravityDates } from '../antigravity.js';
+import { ANTIGRAVITY_MODEL_IDS, isConcreteAntigravityModel, rememberAntigravityModel } from '../antigravity-db.js';
 
 let tmpDir: string;
 
@@ -114,7 +115,24 @@ describe('scanAntigravityDates', () => {
       join(fakeHome, '.gemini', 'antigravity'),
       join(fakeHome, '.gemini', 'antigravity-cli'),
       join(fakeHome, '.gemini', 'antigravity-ide'),
+      join(fakeHome, '.gemini', 'antigravity-backup'),
+      join(fakeHome, '.config', 'antigravity'),
       t3Root,
     ]));
+  });
+
+  it('maps offline Antigravity numeric model IDs and learns unique concrete models', () => {
+    expect(ANTIGRAVITY_MODEL_IDS[1402]).toBe('claude-opus-5-5');
+    expect(ANTIGRAVITY_MODEL_IDS[1417]).toBe('gemini-4-argon');
+    expect(ANTIGRAVITY_MODEL_IDS[1537]).toBe('gemini-pro-orchestrator-neon');
+    expect(isConcreteAntigravityModel('gemini-4-neon')).toBe(true);
+    expect(isConcreteAntigravityModel('gemini-3-flash-agent-a')).toBe(false);
+
+    const learned = new Map<number, string | null>();
+    rememberAntigravityModel(learned, 9999, 'gemini-4-neon');
+    rememberAntigravityModel(learned, 9999, 'gemini-4-neon');
+    expect(learned.get(9999)).toBe('gemini-4-neon');
+    rememberAntigravityModel(learned, 9999, 'gemini-4-argon');
+    expect(learned.get(9999)).toBeNull();
   });
 });

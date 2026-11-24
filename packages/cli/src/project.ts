@@ -2,6 +2,7 @@ import { open, readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import { discoverAntigravityProjects as discoverAntigravityDatabaseProjects } from './scanners/antigravity.js';
+import { discoverGrokProjects } from './scanners/grok.js';
 import { resolveKimiCodeHome } from './scanners/kimi.js';
 import { resolveTraeNativeCacheDir } from './scanners/trae.js';
 
@@ -56,6 +57,9 @@ export async function discoverProjects(
     // Antigravity: ~/.gemini/antigravity/knowledge/*/metadata.json
     // 仅读取知识项元数据标题，不读取对话内容
     discoverAntigravityProjects().then(names => names.forEach(n => add(n, 'antigravity'))),
+
+    // Grok CLI: ~/.grok/sessions/{encoded-path}/
+    discoverGrokProjects().then(names => names.forEach(n => add(n, 'grok'))),
 
     // Kimi CLI / Kimi Code: legacy workspace map + new session metadata.
     discoverKimiProjects().then(names => names.forEach(n => add(n, 'kimi'))),

@@ -9,6 +9,7 @@ import { resolveTraeNativeCacheDir, resolveTokscaleTraeCacheDir } from './scanne
 import { detectOpenCodeSqliteRuntime, resolveOpenCodeSources } from './scanners/opencode.js';
 import { discoverAntigravityRoots } from './scanners/antigravity.js';
 import { discoverClaudeProjectDirs } from './scanners/claude.js';
+import { resolveGrokSessionsDir } from './scanners/grok.js';
 import type { Lang } from './i18n.js';
 
 export interface Check {
@@ -178,6 +179,7 @@ export async function runDoctor(lang: Lang = 'zh'): Promise<Check[]> {
     },
     { dirs: [join(home, '.gemini', 'tmp')], label: 'Gemini CLI', exts: ['.json', '.jsonl'] },
     { dirs: antigravityRoots, label: 'Antigravity', exts: ['.json', '.db', '.pb'] },
+    { dirs: [resolveGrokSessionsDir(home)], label: 'Grok CLI', exts: ['updates.jsonl'] },
     { dirs: [join(home, '.qwen', 'projects'), join(home, '.qwen', 'tmp')], label: 'Qwen Code', exts: ['.jsonl'] },
     { dirs: [join(resolveKimiCodeHome(home), 'sessions')], label: 'Kimi Code', exts: ['.jsonl'] },
     { dirs: [join(home, '.kimi', 'sessions')], label: 'Kimi CLI (legacy)', exts: ['.jsonl'] },

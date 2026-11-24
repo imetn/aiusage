@@ -14,7 +14,9 @@ export function calculateIngestBreakdownCost(
   const [, major, minor, patch] = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(clientVersion ?? '') ?? [];
   const separatesReasoning = Number(major) > 1
     || (Number(major) === 1 && (Number(minor) > 7 || (Number(minor) === 7 && Number(patch) >= 12)));
-  const reasoning = (breakdown.product === 'codex' && separatesReasoning) || breakdown.product === 'antigravity'
+  const reasoning = (breakdown.product === 'codex' && separatesReasoning)
+    || breakdown.product === 'antigravity'
+    || breakdown.product === 'grok-cli'
     ? (breakdown.reasoningOutputTokens ?? 0) : 0;
   const calculated = calculateSharedCost(
     breakdown.provider,
@@ -31,7 +33,10 @@ export function calculateIngestBreakdownCost(
     { requestCount: breakdown.eventCount, usageTime: usageDate },
   );
 
-  const hasVendorReportedCost = breakdown.product === 'trae-intl' || breakdown.product === 'opencode';
+  const hasVendorReportedCost =
+    breakdown.product === 'trae-intl'
+    || breakdown.product === 'opencode'
+    || breakdown.product === 'grok-cli';
   if (
     breakdown.costUSD == null ||
     !Number.isFinite(breakdown.costUSD) ||

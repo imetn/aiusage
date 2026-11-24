@@ -11,7 +11,7 @@ import { sourcegraph } from './data/sourcegraph.js';
 import { xai } from './data/xai.js';
 import { inflection, cursor, droid, opencode } from './data/placeholders.js';
 
-export const PRICING_VERSION = '2026-11-24-routing-copilot-v1';
+export const PRICING_VERSION = '2026-11-24-t3-alignment-v1';
 
 /**
  * 模型别名（精确匹配优先于前缀回退）。

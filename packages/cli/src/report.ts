@@ -12,6 +12,7 @@ import {
   resolveTraeNativeCacheDir,
 } from './scanners/trae.js';
 import { discoverAntigravityUsageDates } from './scanners/antigravity.js';
+import { discoverGrokUsageDates } from './scanners/grok.js';
 import { discoverOpenCodeUsageDates } from './scanners/opencode.js';
 import type { PricingInfo } from './pricing.js';
 
@@ -201,6 +202,7 @@ async function discoverAllDates(
   if (includes('gemini-cli')) discoveries.push(discoverGeminiDates(dates));
   if (includes('copilot-vscode')) discoveries.push(discoverCopilotVscodeDates(dates));
   if (includes('antigravity')) discoveries.push(discoverAntigravityDates(dates));
+  if (includes('grok-cli')) discoveries.push(discoverGrokUsageDates().then(found => { found.forEach(date => dates.add(date)); }));
   if (includes('copilot-cli')) {
     discoveries.push(discoverGenericJsonlDates(join(home, '.copilot', 'session-state'), dates));
     discoveries.push(discoverGenericJsonlDates(join(home, '.copilot', 'otel'), dates));
@@ -690,6 +692,7 @@ export function calculateBreakdownCost(
   const sourceCostMatchesCatalog =
     breakdown.product === 'trae-intl' ||
     breakdown.product === 'opencode' ||
+    breakdown.product === 'grok-cli' ||
     breakdown.pricingVersion == null ||
     breakdown.pricingVersion === effectivePricingVersion;
   if (breakdown.costUSD != null && breakdown.costUSD > 0 && sourceCostMatchesCatalog) {
@@ -706,8 +709,8 @@ export function calculateBreakdownCost(
       cacheWriteTokens: breakdown.cacheWriteTokens,
       cacheWrite5mTokens: breakdown.cacheWrite5mTokens,
       cacheWrite1hTokens: breakdown.cacheWrite1hTokens,
-      // Codex and Antigravity store thinking separately from visible output.
-      outputTokens: breakdown.outputTokens + (['codex', 'antigravity'].includes(breakdown.product) ? (breakdown.reasoningOutputTokens ?? 0) : 0),
+      // Codex, Antigravity, and Grok CLI store thinking separately from visible output.
+      outputTokens: breakdown.outputTokens + (['codex', 'antigravity', 'grok-cli'].includes(breakdown.product) ? (breakdown.reasoningOutputTokens ?? 0) : 0),
     },
     {
       ...(pricingCatalog ? { catalog: pricingCatalog } : {}),

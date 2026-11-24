@@ -27,6 +27,7 @@ describe('catalog 结构', () => {
       ['xai', 'opencode'],
       ['xai', 'copilot-cli'],
       ['xai', 'claude-code'],
+      ['xai', 'grok-cli'],
     ];
     const missing = required.filter(([p, pr]) => !catalog.providers[p]?.[pr]);
     expect(missing).toEqual([]);
@@ -583,5 +584,18 @@ describe('Routed gateway models and Copilot CLI pricing', () => {
     expect(calculateCost('github', 'copilot-cli', model, shortTokens)).toMatchObject({
       costStatus: 'exact', resolvedModel, estimatedCostUsd: expectedCost,
     });
+  });
+
+  it.each([
+    ['gemini-pro-orchestrator-neon', 'gemini-4-neon'],
+    ['gemini-pro-orchestrator-g1-pro', 'gemini-4-argon'],
+    ['gemini-3-flash-agent-a', 'gemini-3.5-flash'],
+    ['gemini-3-flash', 'gemini-3-flash-preview'],
+    ['gemini-3.5-flash-extra-low', 'gemini-3.5-flash'],
+  ])('normalizes Antigravity orchestrator/variant model %s to %s', (model, resolvedModel) => {
+    const r = calculateCost('google', 'antigravity', model, shortTokens);
+    expect(r.resolvedModel).toBe(resolvedModel);
+    expect(r.estimatedCostUsd).toBeGreaterThan(0);
+    expect(r.costStatus).not.toBe('unavailable');
   });
 });

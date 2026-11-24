@@ -3,12 +3,14 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
+import * as zlib from 'node:zlib';
 import { calculateCost, type IngestBreakdown } from '@aiusage/shared';
 import { fileModifiedTs, keepFilesModifiedSince, normalizeModelName, runWithConcurrency, resolveProjectFields, type ProjectFields } from './utils.js';
 
 const FILE_CONCURRENCY = 16;
 const MAX_LINE_BYTES = 64 * 1024 * 1024; // 64 MB
-type CodexServiceTier = 'fast' | 'priority' | null;
+type CodexServiceTier = 'fast' | 'priority' | 'ultrafast' | null;
 
 interface CodexRecord {
   type?: string;
@@ -28,6 +30,11 @@ interface CodexPayload {
   thread_source?: string;
   turn_id?: string;
   started_at?: number;
+  response_id?: string;
+  usage?: TokenUsage;
+  thread_settings?: {
+    service_tier?: string | null;
+  };
   info?: {
     model?: string;
     model_name?: string;
@@ -54,11 +61,23 @@ interface CodexTotals {
   reasoning: number;
 }
 
+interface CodexPendingRequest {
+  ts: Date;
+  usageDate: string;
+  model: string;
+  projectFields: ProjectFields;
+  tokens: CodexTotals;
+}
+
 interface CodexFileState {
+  baseModel: string;
   currentModel: string;
+  serviceTier: CodexServiceTier;
   projectFields: ProjectFields;
   hasSessionWorkspace: boolean;
   previousTotals?: CodexTotals;
+  requestLedgerActive: boolean;
+  unreportedRequests: CodexPendingRequest[];
   sessionIdFromMeta?: string;
   sessionForkedFromId?: string;
   forkedChildSessionId?: string;
@@ -133,26 +152,139 @@ export async function scanCodexDates(
   );
 }
 
-/** 流式逐行读取单个 Codex JSONL 文件 */
+function openCodexLineStream(filePath: string): { lineInput: Readable; cleanup: () => void } | null {
+  if (filePath.endsWith('.jsonl.zst')) {
+    const createZstdDecompress = (zlib as unknown as {
+      createZstdDecompress?: () => NodeJS.ReadWriteStream & { destroy: () => void };
+    }).createZstdDecompress;
+    if (typeof createZstdDecompress !== 'function') return null;
+    const raw = createReadStream(filePath);
+    const decompressor = createZstdDecompress();
+    raw.on('error', (err) => decompressor.emit('error', err));
+    raw.pipe(decompressor);
+    return {
+      lineInput: decompressor as unknown as Readable,
+      cleanup: () => {
+        raw.destroy();
+        decompressor.destroy();
+      },
+    };
+  }
+  const raw = createReadStream(filePath, { encoding: 'utf-8' });
+  return {
+    lineInput: raw,
+    cleanup: () => raw.destroy(),
+  };
+}
+
+function setCodexModel(state: CodexFileState, rawModel: string): void {
+  const normalized = normalizeModelName(rawModel);
+  state.baseModel = normalized;
+  state.currentModel = applyCodexServiceTier(normalized, state.serviceTier);
+}
+
+function parseCodexServiceTier(value: unknown): CodexServiceTier {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'priority') return 'priority';
+  if (normalized === 'fast') return 'fast';
+  if (normalized === 'ultrafast') return 'ultrafast';
+  return null;
+}
+
+function dedupScopeOf(state: CodexFileState, fileSessionId: string): string {
+  return state.sessionForkedFromId
+    ?? state.sessionIdFromMeta
+    ?? fileSessionId;
+}
+
+function buildCodexUsageEvent(
+  tokens: CodexTotals,
+  model: string,
+  projectFields: ProjectFields,
+  ts: Date,
+  usageDate: string,
+  signature: string,
+): CodexUsageEvent | null {
+  const cachedInput = Math.min(tokens.cached, tokens.input);
+  const cacheWriteInput = Math.min(tokens.cacheWrite, Math.max(tokens.input - cachedInput, 0));
+  const nonCachedInput = Math.max(tokens.input - cachedInput - cacheWriteInput, 0);
+  // Codex output_tokens already includes reasoning_output_tokens. Store the
+  // two components without overlap so reports can safely add them together.
+  const reasoning = Math.min(tokens.reasoning, tokens.output);
+  const output = Math.max(tokens.output - reasoning, 0);
+  if (nonCachedInput + cachedInput + cacheWriteInput + output + reasoning === 0) return null;
+
+  const eventCost = calculateCost('openai', 'codex', model, {
+    inputTokens: nonCachedInput,
+    cachedInputTokens: cachedInput,
+    cacheWriteTokens: cacheWriteInput,
+    // Reasoning is billed at the output rate, so pricing still uses the
+    // inclusive raw Codex output total.
+    outputTokens: tokens.output,
+  }, { usageTime: ts.getTime() });
+  const exactEventCost = eventCost.costStatus === 'exact' ? eventCost.estimatedCostUsd : undefined;
+  return {
+    usageDate,
+    signature,
+    model,
+    projectFields: { ...projectFields },
+    inputTokens: nonCachedInput,
+    cachedInputTokens: cachedInput,
+    cacheWriteTokens: cacheWriteInput,
+    outputTokens: output,
+    reasoningOutputTokens: reasoning,
+    costUSD: exactEventCost,
+    pricingVersion: exactEventCost !== undefined ? eventCost.pricingVersion : undefined,
+  };
+}
+
+function bridgeUnreportedRequests(
+  previous: CodexTotals | undefined,
+  total: CodexTotals,
+  last: CodexTotals,
+  pending: readonly CodexPendingRequest[],
+): CodexPendingRequest[] {
+  if (!previous || pending.length === 0) return [];
+  const delta = totalsDelta(total, previous);
+  if (!delta || totalsEqual(delta, last)) return [];
+  const pendingSum = pending.reduce<CodexTotals>(
+    (acc, req) => totalsAdd(acc, req.tokens),
+    { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+  );
+  if (!totalsEqual(delta, pendingSum)) return [];
+  const final = pending[pending.length - 1];
+  const remainder = totalsDelta(final.tokens, last);
+  if (!remainder) return [];
+  return [...pending.slice(0, -1), { ...final, tokens: remainder }]
+    .filter((req) => totalsSum(req.tokens) > 0);
+}
+
+/** 流式逐行读取单个 Codex JSONL / JSONL.ZST 文件 */
 async function processCodexFile(
   filePath: string,
   projectAliases: Record<string, string> | undefined,
-  serviceTier: CodexServiceTier,
+  defaultServiceTier: CodexServiceTier,
 ): Promise<CodexUsageEvent[]> {
   const events: CodexUsageEvent[] = [];
-  const input = createReadStream(filePath, { encoding: 'utf-8' });
+  const opened = openCodexLineStream(filePath);
+  if (!opened) return events;
   try {
     const rl = createInterface({
-      input,
+      input: opened.lineInput,
       crlfDelay: Infinity,
     });
 
-    const fileSessionId = basename(filePath, '.jsonl');
+    const fileSessionId = basename(filePath).replace(/\.jsonl(?:\.zst)?$/, '');
     const fallbackTs = await fileModifiedTs(filePath);
     const state: CodexFileState = {
+      baseModel: 'unknown',
       currentModel: 'unknown',
+      serviceTier: defaultServiceTier,
       projectFields: { project: 'unknown', projectDisplay: 'unknown' },
       hasSessionWorkspace: false,
+      requestLedgerActive: false,
+      unreportedRequests: [],
       waitingForChildTurn: false,
       taskStartedTurnIds: new Set(),
       childIsUserFork: false,
@@ -175,6 +307,7 @@ async function processCodexFile(
       if (!payload) continue;
       const payloadModel = extractCodexModel(payload);
       const isTokenCount = record.type === 'event_msg' && payload.type === 'token_count';
+      const isThreadSettings = record.type === 'event_msg' && payload.type === 'thread_settings_applied';
 
       // 子会话文件会先复制父会话历史。保持 child 的 workspace/session 状态，
       // 直到能确定自己的 turn_context，再开始计数。
@@ -193,6 +326,9 @@ async function processCodexFile(
           if (record.type === 'session_meta' && payload.id
             && payload.id !== state.forkedChildSessionId) {
             state.forkedChildReplaySessionId = payload.id;
+          }
+          if (isThreadSettings && payload.thread_settings && 'service_tier' in payload.thread_settings) {
+            state.serviceTier = parseCodexServiceTier(payload.thread_settings.service_tier);
           }
           if (isTokenCount) rememberInheritedBaseline(state, payload.info);
           continue;
@@ -226,11 +362,81 @@ async function processCodexFile(
       }
 
       if (record.type === 'turn_context') {
+        state.requestLedgerActive = false;
         if (payloadModel && payloadModel !== '<synthetic>') {
-          state.currentModel = applyCodexServiceTier(normalizeModelName(payloadModel), serviceTier);
+          setCodexModel(state, payloadModel);
         }
         if (payload.cwd && !state.hasSessionWorkspace) {
           state.projectFields = resolveProjectFields(payload.cwd, projectAliases);
+        }
+        continue;
+      }
+
+      if (isThreadSettings) {
+        if (payload.thread_settings && 'service_tier' in payload.thread_settings) {
+          state.serviceTier = parseCodexServiceTier(payload.thread_settings.service_tier);
+          if (state.baseModel !== 'unknown') {
+            state.currentModel = applyCodexServiceTier(state.baseModel, state.serviceTier);
+          }
+        }
+        continue;
+      }
+
+      // Codex request ledger (`token_usage_record`): captures per-request spending
+      // including compaction/interrupted turns that `token_count` snapshots can omit.
+      if (record.type === 'token_usage_record') {
+        if (!payload.usage) continue;
+        if (payloadModel && payloadModel !== '<synthetic>') {
+          setCodexModel(state, payloadModel);
+        }
+        const ts = parseTimestamp(record.timestamp) ?? fallbackTs;
+        if (!ts) continue;
+        const usageDate = toDateKey(ts);
+        const tokens = totalsFromUsage(payload.usage);
+        const responseId = typeof payload.response_id === 'string' ? payload.response_id.trim() : '';
+
+        if (responseId) {
+          state.requestLedgerActive = true;
+          state.inheritedBaseline = undefined;
+          state.inheritedReportedTotal = undefined;
+          const dedupScope = dedupScopeOf(state, fileSessionId);
+          for (const [idx, pending] of state.unreportedRequests.entries()) {
+            state.previousTotals = state.previousTotals
+              ? totalsAdd(state.previousTotals, pending.tokens)
+              : pending.tokens;
+            const pendingSig = `codex|${dedupScope}|unreported|${pending.model}|${pending.ts.getTime()}|${idx}|${pending.tokens.input}|${pending.tokens.cached}|${pending.tokens.cacheWrite}|${pending.tokens.output}|${pending.tokens.reasoning}`;
+            const pendingEvent = buildCodexUsageEvent(
+              pending.tokens,
+              pending.model,
+              pending.projectFields,
+              pending.ts,
+              pending.usageDate,
+              pendingSig,
+            );
+            if (pendingEvent) events.push(pendingEvent);
+          }
+          state.unreportedRequests = [];
+          state.previousTotals = state.previousTotals
+            ? totalsAdd(state.previousTotals, tokens)
+            : tokens;
+          const event = buildCodexUsageEvent(
+            tokens,
+            state.currentModel,
+            state.projectFields,
+            ts,
+            usageDate,
+            `codex|${dedupScope}|resp|${responseId}`,
+          );
+          if (event) events.push(event);
+        } else {
+          state.requestLedgerActive = false;
+          state.unreportedRequests.push({
+            ts,
+            usageDate,
+            model: state.currentModel,
+            projectFields: { ...state.projectFields },
+            tokens,
+          });
         }
         continue;
       }
@@ -240,7 +446,7 @@ async function processCodexFile(
       if (!info?.total_token_usage && !info?.last_token_usage) continue;
 
       if (payloadModel && payloadModel !== '<synthetic>') {
-        state.currentModel = applyCodexServiceTier(normalizeModelName(payloadModel), serviceTier);
+        setCodexModel(state, payloadModel);
       }
       const ts = parseTimestamp(record.timestamp) ?? fallbackTs;
       if (!ts) continue;
@@ -248,61 +454,77 @@ async function processCodexFile(
 
       const total = info.total_token_usage ? totalsFromUsage(info.total_token_usage) : undefined;
       const last = info.last_token_usage ? totalsFromUsage(info.last_token_usage) : undefined;
+
+      // When identified `token_usage_record` entries are active for this turn,
+      // `token_count` snapshots only advance the baseline and must not double-bill.
+      if (state.requestLedgerActive) {
+        if (total) {
+          state.previousTotals = total;
+          state.unreportedRequests = [];
+        }
+        continue;
+      }
+
       if (shouldSkipInheritedSnapshot(state, info.total_token_usage, total)) continue;
       state.inheritedBaseline = undefined;
       state.inheritedReportedTotal = undefined;
 
-      const parsed = resolveCodexIncrement(total, last, state.previousTotals);
+      const previous = state.previousTotals;
+      const pending = state.unreportedRequests;
+      const parsed = resolveCodexIncrement(total, last, previous);
       if (!parsed) continue;
       if (!parsed.tokens) {
         state.previousTotals = parsed.nextTotals;
+        state.unreportedRequests = [];
         continue;
       }
       const { tokens, nextTotals } = parsed;
-      const cachedInput = Math.min(tokens.cached, tokens.input);
-      const cacheWriteInput = Math.min(tokens.cacheWrite, Math.max(tokens.input - cachedInput, 0));
-      const nonCachedInput = Math.max(tokens.input - cachedInput - cacheWriteInput, 0);
-      // Codex output_tokens already includes reasoning_output_tokens. Store the
-      // two components without overlap so reports can safely add them together.
-      const reasoning = Math.min(tokens.reasoning, tokens.output);
-      const output = Math.max(tokens.output - reasoning, 0);
-      if (nonCachedInput + cachedInput + cacheWriteInput + output + reasoning === 0) continue;
-      state.previousTotals = nextTotals;
+      const dedupScope = dedupScopeOf(state, fileSessionId);
 
-      const dedupScope = state.sessionForkedFromId
-        ?? state.sessionIdFromMeta
-        ?? fileSessionId;
+      // Bridge anonymous `token_usage_record` entries (e.g. interrupted/compaction requests)
+      // when they exactly explain the gap between `previous` and `total`.
+      const bridged = total && last
+        ? bridgeUnreportedRequests(previous, total, last, pending)
+        : [];
+      for (const [idx, req] of bridged.entries()) {
+        const bridgedSig = `codex|${dedupScope}|bridged|${req.model}|${req.ts.getTime()}|${idx}|${req.tokens.input}|${req.tokens.cached}|${req.tokens.cacheWrite}|${req.tokens.output}|${req.tokens.reasoning}`;
+        const bridgedEvent = buildCodexUsageEvent(
+          req.tokens,
+          req.model,
+          req.projectFields,
+          req.ts,
+          req.usageDate,
+          bridgedSig,
+        );
+        if (bridgedEvent) events.push(bridgedEvent);
+      }
+
       const signature = total
         ? `codex|${dedupScope}|${state.currentModel}|${total.input}|${total.cached}|${total.cacheWrite}|${total.output}|${total.reasoning}`
         : `codex|${dedupScope}|${state.currentModel}|${ts.getTime()}|${tokens.input}|${tokens.cached}|${tokens.cacheWrite}|${tokens.output}|${tokens.reasoning}`;
-
-      const eventCost = calculateCost('openai', 'codex', state.currentModel, {
-        inputTokens: nonCachedInput,
-        cachedInputTokens: cachedInput,
-        cacheWriteTokens: cacheWriteInput,
-        // Reasoning is billed at the output rate, so pricing still uses the
-        // inclusive raw Codex output total.
-        outputTokens: tokens.output,
-      }, { usageTime: ts.getTime() });
-      const exactEventCost = eventCost.costStatus === 'exact' ? eventCost.estimatedCostUsd : undefined;
-      events.push({
+      const event = buildCodexUsageEvent(
+        tokens,
+        state.currentModel,
+        state.projectFields,
+        ts,
         usageDate,
         signature,
-        model: state.currentModel,
-        projectFields: { ...state.projectFields },
-        inputTokens: nonCachedInput,
-        cachedInputTokens: cachedInput,
-        cacheWriteTokens: cacheWriteInput,
-        outputTokens: output,
-        reasoningOutputTokens: reasoning,
-        costUSD: exactEventCost,
-        pricingVersion: exactEventCost !== undefined ? eventCost.pricingVersion : undefined,
-      });
+      );
+      if (!event) {
+        if (bridged.length > 0) {
+          state.previousTotals = nextTotals;
+          state.unreportedRequests = [];
+        }
+        continue;
+      }
+      state.previousTotals = nextTotals;
+      state.unreportedRequests = [];
+      events.push(event);
     }
   } catch {
     // 文件在扫描期间被移动、归档或损坏时跳过该文件。
   } finally {
-    input.destroy();
+    opened.cleanup();
   }
   return events;
 }
@@ -549,6 +771,7 @@ async function detectCodexServiceTier(baseDir: string): Promise<CodexServiceTier
   const serviceTier = config.match(/^\s*service_tier\s*=\s*["']([^"']+)["']/m)?.[1]?.trim().toLowerCase();
   if (serviceTier === 'priority') return 'priority';
   if (serviceTier === 'fast') return 'fast';
+  if (serviceTier === 'ultrafast') return 'ultrafast';
 
   const fastMode = config.match(/^\s*fast_mode\s*=\s*(true|false)\s*$/m)?.[1];
   return fastMode === 'true' ? 'fast' : null;
@@ -556,16 +779,30 @@ async function detectCodexServiceTier(baseDir: string): Promise<CodexServiceTier
 
 function applyCodexServiceTier(model: string, serviceTier: CodexServiceTier): string {
   if (!serviceTier) return model;
-  if (model.endsWith('-fast') || model.endsWith('-priority')) return model;
-  const supportsFast = model === 'gpt-6-astra' || model === 'gpt-6-sol' || model === 'gpt-6-luna'
-    || model === 'gpt-5.5' || model === 'gpt-5.4';
+  if (model.endsWith('-fast') || model.endsWith('-priority') || model.endsWith('-ultrafast')) return model;
+  const supportsUltrafast =
+    model === 'gpt-6.2-astra'
+    || model === 'gpt-6.2-sol'
+    || model === 'gpt-6.1-sol';
+  const supportsFast =
+    supportsUltrafast
+    || model === 'gpt-6.1-terra'
+    || model === 'gpt-6-astra'
+    || model === 'gpt-6-sol'
+    || model === 'gpt-6-luna'
+    || model === 'gpt-5.5'
+    || model === 'gpt-5.4';
   const supportsPriority =
-    model === 'gpt-5.6' ||
-    model === 'gpt-5.6-sol' ||
-    model === 'gpt-5.6-terra' ||
-    model === 'gpt-5.6-luna' ||
-    supportsFast;
-  if ((serviceTier === 'fast' && supportsFast) || (serviceTier === 'priority' && supportsPriority)) {
+    model === 'gpt-5.6'
+    || model === 'gpt-5.6-sol'
+    || model === 'gpt-5.6-terra'
+    || model === 'gpt-5.6-luna'
+    || supportsFast;
+  if (
+    (serviceTier === 'ultrafast' && supportsUltrafast)
+    || (serviceTier === 'fast' && supportsFast)
+    || (serviceTier === 'priority' && supportsPriority)
+  ) {
     return `${model}-${serviceTier}`;
   }
   return model;
@@ -582,7 +819,7 @@ async function walkDir(dir: string, result: string[]): Promise<void> {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
       await walkDir(fullPath, result);
-    } else if (entry.name.endsWith('.jsonl')) {
+    } else if (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.zst')) {
       result.push(fullPath);
     }
   }

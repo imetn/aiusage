@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-24-routing-copilot-v1",
+  "version": "2026-11-24-t3-alignment-v1",
   "fx": {
     "CNY": 7.2
   },
@@ -1965,6 +1965,33 @@
         }
       },
       "claude-code": {
+        "models": {
+          "grok-4.7": {
+            "currency": "USD",
+            "notes": "prompts of 200K+ input tokens bill the full request at long-context rates; -fast is 2x",
+            "input_per_million": 2,
+            "cached_input_per_million": 0.5,
+            "cache_write_per_million": 2,
+            "output_per_million": 6,
+            "tiers": [
+              {
+                "threshold": 199999,
+                "input_per_million": 2,
+                "cached_input_per_million": 0.5,
+                "cache_write_per_million": 2,
+                "output_per_million": 6
+              },
+              {
+                "input_per_million": 4,
+                "cached_input_per_million": 1,
+                "cache_write_per_million": 4,
+                "output_per_million": 12
+              }
+            ]
+          }
+        }
+      },
+      "grok-cli": {
         "models": {
           "grok-4.7": {
             "currency": "USD",

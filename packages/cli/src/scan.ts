@@ -5,6 +5,7 @@ import { scanCopilotDates } from './scanners/copilot.js';
 import { scanCopilotVscodeDates } from './scanners/copilot-vscode.js';
 import { scanCursorDates } from './scanners/cursor.js';
 import { scanGeminiDates } from './scanners/gemini.js';
+import { scanGrokDates } from './scanners/grok.js';
 import { scanQwenDates } from './scanners/qwen.js';
 import { scanKimiDates } from './scanners/kimi.js';
 import { scanAmpDates } from './scanners/amp.js';
@@ -45,6 +46,7 @@ export const TOOL_IDS = [
   'cursor',
   'droid',
   'gemini-cli',
+  'grok-cli',
   'kimi-code',
   'opencode',
   'pi',
@@ -107,6 +109,7 @@ export async function scanDates(targetDates: string[], options: ScanOptions = {}
     { products: ['copilot-vscode'], scan: () => scanCopilotVscodeDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['cursor'], scan: () => scanCursorDates(uniqueDates) },
     { products: ['gemini-cli'], scan: () => scanGeminiDates(uniqueDates, undefined, options.projectAliases) },
+    { products: ['grok-cli'], scan: () => scanGrokDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['qwen-code'], scan: () => scanQwenDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['kimi-code'], scan: () => scanKimiDates(uniqueDates, undefined, options.projectAliases) },
     { products: ['amp'], scan: () => scanAmpDates(uniqueDates, undefined, options.projectAliases) },

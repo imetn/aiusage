@@ -165,6 +165,16 @@ export interface CalculateCostOptions {
   usageTime?: number | string;
 }
 
+function resolveAntigravityRateModel(model: string): string {
+  const lower = model.trim().toLowerCase();
+  if (/^gemini-3-flash-(?:agent(?:-[ab])?|[ab])$/.test(lower)) return 'gemini-3.5-flash';
+  if (lower === 'gemini-pro-orchestrator-neon') return 'gemini-4-neon';
+  if (lower === 'gemini-pro-orchestrator-g1-pro') return 'gemini-4-argon';
+  const base = lower.replace(/-(?:none|extra-low|low|medium|high|xhigh|max|tiered|control|thinking|agent|orchestrator)$/, '');
+  if (base === 'gemini-3-flash') return 'gemini-3-flash-preview';
+  return base;
+}
+
 export function calculateCost(
   provider: string,
   product: string,
@@ -187,7 +197,7 @@ export function calculateCost(
   const antigravity = product === 'antigravity';
   const routed = normalizeRoutedModel(model);
   const normalizedModel = routed.model;
-  const pricedModel = antigravity ? normalizedModel.replace(/-(?:none|low|medium|high|xhigh|max)$/, '') : normalizedModel;
+  const pricedModel = antigravity ? resolveAntigravityRateModel(normalizedModel) : normalizedModel;
   const pricedProvider = routed.stripped || isRoutingProvider(provider)
     ? inferProviderFromModel(pricedModel, provider)
     : provider;

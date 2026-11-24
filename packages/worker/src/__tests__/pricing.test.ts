@@ -130,6 +130,41 @@ describe('calculateCost: 基本计费', () => {
     expect(result.costStatus).toBe('exact');
   });
 
+  it('始终采用 Grok CLI 供应商上报的精确费用，缺省时按含推理输出折算', () => {
+    const reported = calculateIngestBreakdownCost({
+      provider: 'xai',
+      product: 'grok-cli',
+      channel: 'cli',
+      model: 'grok-4.7-build',
+      project: '/tmp/project',
+      eventCount: 2,
+      inputTokens: 40_000,
+      cachedInputTokens: 60_000,
+      cacheWriteTokens: 0,
+      outputTokens: 6_000,
+      reasoningOutputTokens: 4_000,
+      costUSD: 1.2345,
+      pricingVersion: 'grok-provider',
+    });
+    expect(reported.estimatedCostUsd).toBe(1.2345);
+    expect(reported.costStatus).toBe('exact');
+
+    const fallback = calculateIngestBreakdownCost({
+      provider: 'xai',
+      product: 'grok-cli',
+      channel: 'cli',
+      model: 'grok-4.7',
+      project: '/tmp/project',
+      eventCount: 1,
+      inputTokens: 100_000,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 60_000,
+      reasoningOutputTokens: 40_000,
+    });
+    expect(fallback.estimatedCostUsd).toBeCloseTo(0.8, 4); // 0.1M*$2 + 0.1M*$6
+  });
+
   it('忽略旧 scanner 用作缺省值的零成本', () => {
     const result = calculateIngestBreakdownCost({
       provider: 'openai',

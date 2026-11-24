@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, writeFile, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as zlib from 'node:zlib';
 import { calculateCost, PRICING_VERSION } from '@aiusage/shared';
 import { scanCodex } from '../codex.js';
 
@@ -701,5 +702,195 @@ describe('Integration: real-world duplicate pattern', () => {
     expect(results[0].inputTokens).toBe(2500);       // 1000+1000+500
     expect(results[0].cachedInputTokens).toBe(9500);  // 2000+4000+3500
     expect(results[0].outputTokens).toBe(450);        // 100+200+150
+  });
+});
+
+describe('T3 Code alignment: request ledger, per-turn service tier, and zstd rollouts', () => {
+  it('bills identified token_usage_record entries authoritatively without double-counting token_count', async () => {
+    const day = '2026-11-17';
+    const sessionDir = join(tmpDir, 'sessions', '2026', '11', '17');
+    await writeSession(sessionDir, 'ledger.jsonl', [
+      { type: 'session_meta', timestamp: `${day}T12:00:00.000Z`, payload: { id: 'sess-ledger', cwd: '/proj' } },
+      { type: 'turn_context', timestamp: `${day}T12:00:00.000Z`, payload: { model: 'gpt-6-astra', cwd: '/proj' } },
+      {
+        type: 'token_usage_record',
+        timestamp: `${day}T12:00:05.000Z`,
+        payload: {
+          response_id: 'resp_001',
+          usage: { input_tokens: 10_000, cached_input_tokens: 6_000, output_tokens: 1_000, reasoning_output_tokens: 400 },
+        },
+      },
+      // Duplicate response_id should be deduped
+      {
+        type: 'token_usage_record',
+        timestamp: `${day}T12:00:05.100Z`,
+        payload: {
+          response_id: 'resp_001',
+          usage: { input_tokens: 10_000, cached_input_tokens: 6_000, output_tokens: 1_000, reasoning_output_tokens: 400 },
+        },
+      },
+      // Context compaction / extra request omitted from token_count
+      {
+        type: 'token_usage_record',
+        timestamp: `${day}T12:00:10.000Z`,
+        payload: {
+          response_id: 'resp_002',
+          usage: { input_tokens: 5_000, cached_input_tokens: 3_000, output_tokens: 500, reasoning_output_tokens: 100 },
+        },
+      },
+      // Following token_count snapshot in same turn should NOT double-count
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:00:11.000Z`,
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: 5_000, cached_input_tokens: 3_000, output_tokens: 500, reasoning_output_tokens: 100 },
+            total_token_usage: { input_tokens: 15_000, cached_input_tokens: 9_000, output_tokens: 1_500, reasoning_output_tokens: 500 },
+          },
+        },
+      },
+    ]);
+
+    const results = await scanCodex(day, tmpDir);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      model: 'gpt-6-astra',
+      eventCount: 2,
+      inputTokens: 6_000,       // (10k-6k) + (5k-3k)
+      cachedInputTokens: 9_000, // 6k + 3k
+      outputTokens: 1_000,      // (1000-400) + (500-100)
+      reasoningOutputTokens: 500,
+    });
+  });
+
+  it('bridges anonymous unreported token_usage_record entries when they explain a token_count gap', async () => {
+    const day = '2026-11-17';
+    const sessionDir = join(tmpDir, 'sessions', '2026', '11', '17');
+    await writeSession(sessionDir, 'bridge.jsonl', [
+      { type: 'session_meta', timestamp: `${day}T12:00:00.000Z`, payload: { id: 'sess-bridge', cwd: '/proj' } },
+      { type: 'turn_context', timestamp: `${day}T12:00:00.000Z`, payload: { model: 'gpt-6-astra', cwd: '/proj' } },
+      // Baseline turn 1
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:00:01.000Z`,
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: 1_000, cached_input_tokens: 500, output_tokens: 100 },
+            total_token_usage: { input_tokens: 1_000, cached_input_tokens: 500, output_tokens: 100 },
+          },
+        },
+      },
+      // Interrupted request A (no response_id)
+      {
+        type: 'token_usage_record',
+        timestamp: `${day}T12:00:10.000Z`,
+        payload: {
+          usage: { input_tokens: 2_000, cached_input_tokens: 1_000, output_tokens: 200 },
+        },
+      },
+      // Request B (no response_id)
+      {
+        type: 'token_usage_record',
+        timestamp: `${day}T12:00:20.000Z`,
+        payload: {
+          usage: { input_tokens: 3_000, cached_input_tokens: 2_000, output_tokens: 300 },
+        },
+      },
+      // Snapshot reports last=B and total=baseline+A+B
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:00:21.000Z`,
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: 3_000, cached_input_tokens: 2_000, output_tokens: 300 },
+            total_token_usage: { input_tokens: 6_000, cached_input_tokens: 3_500, output_tokens: 600 },
+          },
+        },
+      },
+    ]);
+
+    const results = await scanCodex(day, tmpDir);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      eventCount: 3, // baseline + bridged A + B
+      inputTokens: 2_500, // 500 + 1000 + 1000
+      cachedInputTokens: 3_500, // 500 + 1000 + 2000
+      outputTokens: 600, // 100 + 200 + 300
+    });
+  });
+
+  it('tracks per-turn thread_settings_applied service_tier changes (fast / ultrafast / standard)', async () => {
+    const day = '2026-11-17';
+    const sessionDir = join(tmpDir, 'sessions', '2026', '11', '17');
+    await writeSession(sessionDir, 'tier-switch.jsonl', [
+      { type: 'session_meta', timestamp: `${day}T12:00:00.000Z`, payload: { id: 'sess-tier', cwd: '/proj' } },
+      { type: 'turn_context', timestamp: `${day}T12:00:00.000Z`, payload: { model: 'gpt-6.2-sol', cwd: '/proj' } },
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:00:00.500Z`,
+        payload: { type: 'thread_settings_applied', thread_settings: { service_tier: 'ultrafast' } },
+      },
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:00:05.000Z`,
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: 1_000, cached_input_tokens: 0, output_tokens: 100 },
+            total_token_usage: { input_tokens: 1_000, cached_input_tokens: 0, output_tokens: 100 },
+          },
+        },
+      },
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:01:00.000Z`,
+        payload: { type: 'thread_settings_applied', thread_settings: { service_tier: 'standard' } },
+      },
+      {
+        type: 'event_msg',
+        timestamp: `${day}T12:01:05.000Z`,
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: 2_000, cached_input_tokens: 0, output_tokens: 200 },
+            total_token_usage: { input_tokens: 3_000, cached_input_tokens: 0, output_tokens: 300 },
+          },
+        },
+      },
+    ]);
+
+    const results = await scanCodex(day, tmpDir);
+    const byModel = new Map(results.map((r) => [r.model, r]));
+    expect(byModel.get('gpt-6.2-sol-ultrafast')).toMatchObject({ inputTokens: 1_000, outputTokens: 100 });
+    expect(byModel.get('gpt-6.2-sol')).toMatchObject({ inputTokens: 2_000, outputTokens: 200 });
+  });
+
+  it('decompresses and scans .jsonl.zst rollout files when runtime supports zstd', async () => {
+    const zstdCompressSync = (zlib as unknown as { zstdCompressSync?: (buf: Buffer) => Buffer }).zstdCompressSync;
+    if (typeof zstdCompressSync !== 'function') return;
+
+    const day = '2026-11-17';
+    const sessionDir = join(tmpDir, 'sessions', '2026', '11', '17');
+    await mkdir(sessionDir, { recursive: true });
+    const lines = tokenCountEvent(
+      `${day}T12:00:00.000Z`,
+      { input: 4_000, cached: 1_000, output: 250 },
+      { input: 4_000, cached: 1_000, output: 250 },
+      'gpt-6-astra',
+    );
+    const compressed = zstdCompressSync(Buffer.from(lines.map((l) => JSON.stringify(l)).join('\n'), 'utf-8'));
+    await writeFile(join(sessionDir, 'rollout-compressed.jsonl.zst'), compressed);
+
+    const results = await scanCodex(day, tmpDir);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      model: 'gpt-6-astra',
+      inputTokens: 3_000,
+      cachedInputTokens: 1_000,
+      outputTokens: 250,
+    });
   });
 });

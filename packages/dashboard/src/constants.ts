@@ -28,6 +28,7 @@ export const PROVIDER_COLORS: Record<string, string> = {
   opencode: '#f1f5f9',
   trae: '#7c3aed',
   zhipu: '#2563eb',
+  xai: '#18181b',
 };
 
 export const PROVIDER_LABELS: Record<string, string> = {
@@ -42,6 +43,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   opencode: 'OpenCode',
   trae: 'Trae',
   zhipu: 'Zhipu AI',
+  xai: 'xAI',
 };
 
 export function providerLabel(id: string): string {
