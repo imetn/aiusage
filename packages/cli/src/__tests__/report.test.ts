@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as zlib from 'node:zlib';
 
 const mockHomedir = vi.fn();
 
@@ -179,6 +180,66 @@ describe('buildLocalReport', () => {
     expect(report.daily.map(day => day.usageDate)).toEqual(['2026-01-15']);
     expect(report.bySource.map(source => source.source)).toEqual(['openai/trae-cn']);
     expect(report.totals.totalTokens).toBe(310);
+  });
+
+  it('discovers and reports compressed Codex .jsonl.zst sessions across sessions and archived_sessions in all-history reports', async () => {
+    const zstdCompressSync = (zlib as unknown as { zstdCompressSync?: (buf: Buffer) => Buffer }).zstdCompressSync;
+    if (typeof zstdCompressSync !== 'function') return;
+
+    const activeDir = join(homeDir, '.codex', 'sessions', '2026', '05', '10');
+    const archivedDir = join(homeDir, '.codex', 'archived_sessions', '2026');
+    await Promise.all([
+      mkdir(activeDir, { recursive: true }),
+      mkdir(archivedDir, { recursive: true }),
+    ]);
+
+    const activeLines = [
+      { type: 'session_meta', timestamp: '2026-05-10T12:00:00.000Z', payload: { id: 'sess-zst-active', cwd: '/Users/test/repo-a' } },
+      { type: 'turn_context', timestamp: '2026-05-10T12:00:00.000Z', payload: { model: 'gpt-6-astra', cwd: '/Users/test/repo-a' } },
+      {
+        type: 'event_msg',
+        timestamp: '2026-05-10T12:00:05.000Z',
+        payload: {
+          type: 'token_count',
+          info: {
+            last_token_usage: { input_tokens: 10_000, cached_input_tokens: 6_000, output_tokens: 500 },
+            total_token_usage: { input_tokens: 10_000, cached_input_tokens: 6_000, output_tokens: 500 },
+          },
+        },
+      },
+    ];
+    const archivedLines = [
+      { type: 'session_meta', timestamp: '2026-04-02T12:00:00.000Z', payload: { id: 'sess-zst-archived', cwd: '/Users/test/repo-b' } },
+      { type: 'turn_context', timestamp: '2026-04-02T12:00:00.000Z', payload: { model: 'gpt-6-sol', cwd: '/Users/test/repo-b' } },
+      {
+        type: 'token_usage_record',
+        timestamp: '2026-04-02T12:00:05.000Z',
+        payload: {
+          response_id: 'resp_archived_1',
+          usage: { input_tokens: 5_000, cached_input_tokens: 2_000, output_tokens: 300 },
+        },
+      },
+    ];
+
+    await Promise.all([
+      writeFile(
+        join(activeDir, 'rollout-2026-05-10.jsonl.zst'),
+        zstdCompressSync(Buffer.from(activeLines.map(l => JSON.stringify(l)).join('\n'), 'utf-8')),
+      ),
+      writeFile(
+        join(archivedDir, 'session-archived-2026-04-02.jsonl.zst'),
+        zstdCompressSync(Buffer.from(archivedLines.map(l => JSON.stringify(l)).join('\n'), 'utf-8')),
+      ),
+    ]);
+
+    const { buildLocalReport } = await import('../report.js');
+    const report = await buildLocalReport('all', { tools: ['codex'] });
+
+    expect(report.daily.map(day => day.usageDate)).toEqual(['2026-04-02', '2026-05-10']);
+    expect(report.totals.eventCount).toBe(2);
+    expect(report.totals.inputTokens).toBe(7_000); // 4000 + 3000
+    expect(report.totals.cachedInputTokens).toBe(8_000); // 6000 + 2000
+    expect(report.totals.outputTokens).toBe(800); // 500 + 300
   });
 });
 

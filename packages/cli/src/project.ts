@@ -1,7 +1,9 @@
 import { open, readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
+import { createInterface } from 'node:readline';
 import { discoverAntigravityProjects as discoverAntigravityDatabaseProjects } from './scanners/antigravity.js';
+import { collectCodexSessionFiles, openCodexLineStream } from './scanners/codex.js';
 import { discoverGrokProjects } from './scanners/grok.js';
 import { resolveKimiCodeHome } from './scanners/kimi.js';
 import { resolveTraeNativeCacheDir } from './scanners/trae.js';
@@ -102,10 +104,9 @@ async function discoverClaudeProjects(): Promise<string[]> {
   return names;
 }
 
-/** 从 Codex session 文件中提取所有不同的项目名 */
+/** 从 Codex session 文件（含 .jsonl 与 .jsonl.zst、sessions 与 archived_sessions）中提取所有不同的项目名 */
 async function discoverCodexProjects(): Promise<string[]> {
-  const sessionsDir = join(homedir(), '.codex', 'sessions');
-  const files = await walkJsonlFiles(sessionsDir);
+  const files = await collectCodexSessionFiles(join(homedir(), '.codex'));
   const projects = new Set<string>();
 
   for (const filePath of files) {
@@ -115,8 +116,29 @@ async function discoverCodexProjects(): Promise<string[]> {
   return [...projects];
 }
 
-/** 读取 Codex session jsonl 首行的 session_meta.payload.cwd */
+/** 读取 Codex session 首行的 session_meta.payload.cwd（支持 .jsonl 与 .jsonl.zst） */
 async function extractCwdFromSessionMeta(filePath: string): Promise<string | undefined> {
+  if (filePath.endsWith('.jsonl.zst')) {
+    const opened = openCodexLineStream(filePath);
+    if (!opened) return undefined;
+    try {
+      const rl = createInterface({ input: opened.lineInput, crlfDelay: Infinity });
+      for await (const line of rl) {
+        if (!line) continue;
+        const record = JSON.parse(line);
+        const cwd: string | undefined = record?.payload?.cwd;
+        if (!cwd) return undefined;
+        const parts = cwd.split('/').filter(Boolean);
+        return parts[parts.length - 1] || undefined;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    } finally {
+      opened.cleanup();
+    }
+  }
+
   let fh;
   try {
     fh = await open(filePath, 'r');

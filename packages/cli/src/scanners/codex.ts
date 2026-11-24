@@ -124,7 +124,7 @@ export async function scanCodexDates(
   const baseDir = codexDir ?? join(homedir(), '.codex');
   const serviceTier = await detectCodexServiceTier(baseDir);
 
-  const sessionFiles = await keepFilesModifiedSince(await collectSessionFiles(baseDir), targetDateSet, path => path);
+  const sessionFiles = await keepFilesModifiedSince(await collectCodexSessionFiles(baseDir), targetDateSet, path => path);
   if (sessionFiles.length === 0) {
     return new Map([...targetDateSet].map((targetDate) => [targetDate, []]));
   }
@@ -152,7 +152,7 @@ export async function scanCodexDates(
   );
 }
 
-function openCodexLineStream(filePath: string): { lineInput: Readable; cleanup: () => void } | null {
+export function openCodexLineStream(filePath: string): { lineInput: Readable; cleanup: () => void } | null {
   if (filePath.endsWith('.jsonl.zst')) {
     const createZstdDecompress = (zlib as unknown as {
       createZstdDecompress?: () => NodeJS.ReadWriteStream & { destroy: () => void };
@@ -175,6 +175,57 @@ function openCodexLineStream(filePath: string): { lineInput: Readable; cleanup: 
     lineInput: raw,
     cleanup: () => raw.destroy(),
   };
+}
+
+/**
+ * 发现所有包含 Codex 用量记录的本地日期（同时支持 `.jsonl` 与 `.jsonl.zst`、
+ * `sessions/` 与 `archived_sessions/`，以及 `token_count` 与 `token_usage_record`）。
+ */
+export async function discoverCodexUsageDates(codexDir?: string): Promise<string[]> {
+  const baseDir = codexDir ?? join(homedir(), '.codex');
+  const files = await collectCodexSessionFiles(baseDir);
+  if (files.length === 0) return [];
+
+  const dates = new Set<string>();
+  await runWithConcurrency(files, FILE_CONCURRENCY, async (filePath) => {
+    const opened = openCodexLineStream(filePath);
+    if (!opened) return;
+    let fallbackTs: Date | null | undefined;
+    try {
+      const rl = createInterface({
+        input: opened.lineInput,
+        crlfDelay: Infinity,
+      });
+      for await (const line of rl) {
+        if (!line) continue;
+        if (!line.includes('"token_count"') && !line.includes('"token_usage_record"')) continue;
+        if (Buffer.byteLength(line) > MAX_LINE_BYTES) continue;
+
+        let record: CodexRecord;
+        try {
+          record = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const isTokenCount = record.type === 'event_msg' && record.payload?.type === 'token_count';
+        const isTokenUsageRecord = record.type === 'token_usage_record' && Boolean(record.payload?.usage);
+        if (!isTokenCount && !isTokenUsageRecord) continue;
+
+        let ts = parseTimestamp(record.timestamp);
+        if (!ts) {
+          if (fallbackTs === undefined) fallbackTs = await fileModifiedTs(filePath);
+          ts = fallbackTs;
+        }
+        if (ts) dates.add(toDateKey(ts));
+      }
+    } catch {
+      // 文件在扫描期间被移动、归档或损坏时跳过该文件。
+    } finally {
+      opened.cleanup();
+    }
+  });
+
+  return [...dates].sort();
 }
 
 function setCodexModel(state: CodexFileState, rawModel: string): void {
@@ -745,7 +796,7 @@ function uuidV7OrderKey(id: string): string | undefined {
   return parts.join('').toLowerCase();
 }
 
-async function collectSessionFiles(baseDir: string): Promise<string[]> {
+export async function collectCodexSessionFiles(baseDir: string): Promise<string[]> {
   // 与 Codex 本身的生命周期一致：活动会话优先，归档副本随后；各目录
   // 内按路径排序，确保重复事件的 workspace 归属稳定。
   const activePaths: string[] = [];

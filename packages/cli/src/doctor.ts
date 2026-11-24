@@ -166,7 +166,7 @@ export async function runDoctor(lang: Lang = 'zh'): Promise<Check[]> {
   const antigravityRoots = await discoverAntigravityRoots();
   const tools: ToolDef[] = [
     { dirs: claudeProjectDirs, label: 'Claude Code', exts: ['.jsonl'] },
-    { dirs: [join(home, '.codex')], label: 'Codex CLI', exts: ['.jsonl'] },
+    { dirs: [join(home, '.codex')], label: 'Codex CLI', exts: ['.jsonl', '.jsonl.zst'] },
     { dirs: [join(home, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage')], label: 'Cursor', exts: ['.vscdb'] },
     { dirs: [join(home, '.copilot', 'session-state'), join(home, '.copilot', 'otel')], label: 'Copilot CLI', exts: ['.jsonl'] },
     {

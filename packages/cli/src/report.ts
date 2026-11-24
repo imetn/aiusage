@@ -12,6 +12,7 @@ import {
   resolveTraeNativeCacheDir,
 } from './scanners/trae.js';
 import { discoverAntigravityUsageDates } from './scanners/antigravity.js';
+import { discoverCodexUsageDates } from './scanners/codex.js';
 import { discoverGrokUsageDates } from './scanners/grok.js';
 import { discoverOpenCodeUsageDates } from './scanners/opencode.js';
 import type { PricingInfo } from './pricing.js';
@@ -198,7 +199,7 @@ async function discoverAllDates(
   const discoveries: Array<Promise<void>> = [];
 
   if (includes('claude-code')) discoveries.push(discoverClaudeDates(dates));
-  if (includes('codex')) discoveries.push(discoverCodexDates(dates));
+  if (includes('codex')) discoveries.push(discoverCodexUsageDates().then(found => { found.forEach(date => dates.add(date)); }));
   if (includes('gemini-cli')) discoveries.push(discoverGeminiDates(dates));
   if (includes('copilot-vscode')) discoveries.push(discoverCopilotVscodeDates(dates));
   if (includes('antigravity')) discoveries.push(discoverAntigravityDates(dates));
@@ -522,45 +523,6 @@ async function discoverClaudeDates(dates: Set<string>): Promise<void> {
   }
 }
 
-async function discoverCodexDates(dates: Set<string>): Promise<void> {
-  const baseDir = join(homedir(), '.codex');
-  const files = await collectCodexSessionFiles(baseDir);
-
-  for (const filePath of files) {
-    const content = await safeReadUtf8(filePath);
-    if (!content) continue;
-
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue;
-      let record: { type?: string; timestamp?: string; payload?: { type?: string } };
-      try {
-        record = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (record.type !== 'event_msg' || record.payload?.type !== 'token_count') continue;
-      const ts = parseTs(record.timestamp);
-      if (ts) dates.add(dateKey(ts));
-    }
-  }
-}
-
-async function collectCodexSessionFiles(baseDir: string): Promise<string[]> {
-  const paths: string[] = [];
-
-  try {
-    const archivedFiles = await readdir(join(baseDir, 'archived_sessions'));
-    for (const file of archivedFiles) {
-      if (file.endsWith('.jsonl')) paths.push(join(baseDir, 'archived_sessions', file));
-    }
-  } catch {
-    // ignore
-  }
-
-  await walkForCodexJsonl(join(baseDir, 'sessions'), paths);
-  return paths;
-}
-
 async function walkForClaudeJsonl(dir: string, result: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -568,24 +530,6 @@ async function walkForClaudeJsonl(dir: string, result: string[]): Promise<void> 
     if (entry.isDirectory()) {
       await walkForClaudeJsonl(fullPath, result);
     } else if (entry.name.endsWith('.jsonl')) {
-      result.push(fullPath);
-    }
-  }
-}
-
-async function walkForCodexJsonl(dir: string, result: string[]): Promise<void> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await walkForCodexJsonl(fullPath, result);
-    } else if (entry.name.startsWith('rollout-') && entry.name.endsWith('.jsonl')) {
       result.push(fullPath);
     }
   }
