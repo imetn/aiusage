@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { accessSync, constants, realpathSync } from 'node:fs';
 import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -62,6 +62,22 @@ export async function getScheduleStatus(): Promise<ScheduleStatus> {
 
 // ── resolve paths ──
 
+export function resolveScheduledNodePath(execPath = process.execPath): string {
+  // Node resolves executable symlinks, so process.execPath pins a Homebrew
+  // Cellar version that can disappear on upgrade. Keep a matching stable link.
+  const homebrew = execPath.match(/^(.*)\/Cellar\/(node(?:@[^/]+)?)\/[^/]+\/bin\/node$/);
+  if (!homebrew) return execPath;
+
+  const [, prefix, formula] = homebrew;
+  for (const candidate of [join(prefix, 'bin', 'node'), join(prefix, 'opt', formula, 'bin', 'node')]) {
+    try {
+      accessSync(candidate, constants.X_OK);
+      if (realpathSync(candidate) === execPath) return candidate;
+    } catch { /* Missing or unusable link; try the next stable path. */ }
+  }
+  return execPath;
+}
+
 export function resolveCommandPaths(): { nodePath: string; scriptPath: string } {
   const entryPath = process.argv[1];
   if (!entryPath) throw new Error('无法解析当前 aiusage 命令路径');
@@ -71,7 +87,7 @@ export function resolveCommandPaths(): { nodePath: string; scriptPath: string } 
       '检测到通过 npx 运行，定时任务需要全局安装。\n请先执行: npm install -g @aiusage/cli',
     );
   }
-  return { nodePath: process.execPath, scriptPath };
+  return { nodePath: resolveScheduledNodePath(), scriptPath };
 }
 
 // ── macOS launchd ──
