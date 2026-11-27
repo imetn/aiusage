@@ -20,7 +20,8 @@
     "types": "wrangler types",
     "test": "vitest run && node --test scripts/*.test.mjs",
     "db:migrate:local": "wrangler d1 execute aiusage-db --local --file=migrations/0001_init.sql",
-    "db:migrate:remote": "wrangler d1 execute aiusage-db --remote --file=migrations/0001_init.sql"
+    "db:migrate:remote": "wrangler d1 execute aiusage-db --remote --file=migrations/0001_init.sql",
+    "reprice": "tsx scripts/reprice-unavailable.ts"
   },
   "dependencies": {
     "@aiusage/dashboard": "workspace:*",
