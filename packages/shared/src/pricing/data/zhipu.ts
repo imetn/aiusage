@@ -3,7 +3,7 @@ import type { ProductPricing } from '../types.js';
 /**
  * 智谱 GLM。
  * 单价 CNY / 1M tokens。来源：https://bigmodel.cn/pricing
- * 最近核对：2026-05-24
+ * 最近核对：2026-11-27
  *
  * GLM-5.1 / GLM-4.7 按 input 长度分档；GLM-4.7 还按 output 长度二次分档，
  * 这里我们只按 input 阶梯（保守取 output<200K 档），与其他 provider 一致。
@@ -11,6 +11,35 @@ import type { ProductPricing } from '../types.js';
 export const zhipu: Record<string, ProductPricing> = {
   'glm-chat': {
     models: {
+      // https://bigmodel.cn/pricing (2026-11-27)
+      'glm-5.3': {
+        currency: 'CNY',
+        notes: '1M context; flat rate',
+        input_per_million: 8,
+        cached_input_per_million: 2,
+        output_per_million: 28,
+      },
+      'glm-5.3-flashx': {
+        currency: 'CNY',
+        notes: '1M context',
+        input_per_million: 2,
+        cached_input_per_million: 0.57,
+        output_per_million: 7,
+      },
+      'glm-5.3-flash': {
+        currency: 'CNY',
+        notes: '1M context',
+        input_per_million: 0.8,
+        cached_input_per_million: 0.23,
+        output_per_million: 2.8,
+      },
+      'glm-5.2': {
+        currency: 'CNY',
+        notes: '1M context; flat rate',
+        input_per_million: 8,
+        cached_input_per_million: 2,
+        output_per_million: 28,
+      },
       'glm-5.1': {
         currency: 'CNY',
         tiers: [

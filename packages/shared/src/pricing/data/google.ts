@@ -3,7 +3,7 @@ import type { ProductPricing } from '../types.js';
 /**
  * Google Gemini.
  * 单价 USD / 1M tokens。来源：https://ai.google.dev/gemini-api/docs/pricing
- * 最近核对：2026-05-24
+ * 最近核对：2026-11-27
  *
  * Gemini 2.5 Pro / 3.1 Pro Preview / 2.5 Computer Use Preview 等按 prompt 长度分档（200K 阈值），用 tiers 表达。
  * 多模态文本/图像/视频/音频价格不同时，统一按 text 价；audio 等专用模型走单独 product（如 TTS、Live API）。
@@ -32,6 +32,16 @@ export const google: Record<string, ProductPricing> = {
         currency: 'USD', input_per_million: 1.5, cached_input_per_million: 0.075, output_per_million: 7.5,
       },
       'gemini-3.8-flash': {
+        currency: 'USD', input_per_million: 0.75, cached_input_per_million: 0.075, output_per_million: 3.75,
+        notes: 'introductory price through 2026-12-31; cache storage is excluded',
+        price_changes: [{ effective_from: '2027-01-01', input_per_million: 1.5, cached_input_per_million: 0.15, output_per_million: 7.5 }],
+      },
+      'gemini-3.7-flash': {
+        currency: 'USD', input_per_million: 0.75, cached_input_per_million: 0.075, output_per_million: 3.75,
+        notes: 'introductory price through 2026-12-31; cache storage is excluded',
+        price_changes: [{ effective_from: '2027-01-01', input_per_million: 1.5, cached_input_per_million: 0.15, output_per_million: 7.5 }],
+      },
+      'gemini-3.6-flash': {
         currency: 'USD', input_per_million: 0.75, cached_input_per_million: 0.075, output_per_million: 3.75,
         notes: 'introductory price through 2026-12-31; cache storage is excluded',
         price_changes: [{ effective_from: '2027-01-01', input_per_million: 1.5, cached_input_per_million: 0.15, output_per_million: 7.5 }],

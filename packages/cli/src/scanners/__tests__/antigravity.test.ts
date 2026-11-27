@@ -124,6 +124,9 @@ describe('scanAntigravityDates', () => {
   it('maps offline Antigravity numeric model IDs and learns unique concrete models', () => {
     expect(ANTIGRAVITY_MODEL_IDS[1402]).toBe('claude-opus-5-5');
     expect(ANTIGRAVITY_MODEL_IDS[1417]).toBe('gemini-4-argon');
+    expect(ANTIGRAVITY_MODEL_IDS[1532]).toBe('gemini-4-neon-high');
+    expect(ANTIGRAVITY_MODEL_IDS[1534]).toBe('gemini-4-neon-low');
+    expect(ANTIGRAVITY_MODEL_IDS[1535]).toBe('gemini-4-neon-xhigh');
     expect(ANTIGRAVITY_MODEL_IDS[1537]).toBe('gemini-pro-orchestrator-neon');
     expect(isConcreteAntigravityModel('gemini-4-neon')).toBe(true);
     expect(isConcreteAntigravityModel('gemini-3-flash-agent-a')).toBe(false);

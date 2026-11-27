@@ -1,5 +1,5 @@
-const ROUTING_PREFIX_RE = /^(?:group\/(?:auto-)?|factory\/|auto\/|opensource\/|grok\/(?=grok[-.]))/i;
-const ROUTING_PROVIDERS = new Set(['group', 'factory', 'auto', 'opensource', 'grok']);
+const ROUTING_PREFIX_RE = /^(?:group\/(?:auto-)?|factory\/|auto\/|opensource\/|grok\/(?=grok[-.])|agy-cli\/)/i;
+const ROUTING_PROVIDERS = new Set(['group', 'factory', 'auto', 'opensource', 'grok', 'agy-cli']);
 const EFFORT_SUFFIX_RE = /:(?:none|low|medium|high|xhigh|max)$/i;
 
 /** 判断 provider 名是否只是网关/路由包装名而非真实模型供应商。 */

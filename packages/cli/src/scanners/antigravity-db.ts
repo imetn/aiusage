@@ -94,6 +94,9 @@ export const ANTIGRAVITY_MODEL_IDS: Readonly<Record<number, string>> = {
   1417: 'gemini-4-argon',
   1418: 'gemini-4-argon',
   1419: 'gemini-4-argon',
+  1532: 'gemini-4-neon-high',
+  1534: 'gemini-4-neon-low',
+  1535: 'gemini-4-neon-xhigh',
   1537: 'gemini-pro-orchestrator-neon',
 };
 

@@ -11,7 +11,7 @@ import { sourcegraph } from './data/sourcegraph.js';
 import { xai } from './data/xai.js';
 import { inflection, cursor, droid, opencode } from './data/placeholders.js';
 
-export const PRICING_VERSION = '2026-11-24-t3-alignment-v1';
+export const PRICING_VERSION = '2026-11-27-v1';
 
 /**
  * 模型别名（精确匹配优先于前缀回退）。
@@ -30,11 +30,14 @@ const aliases: Record<string, string> = {
   'claude-opus-4-6-20250301': 'claude-opus-4-6',
   'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
   'claude-sonnet-4.6': 'claude-sonnet-4-6',
+  'deepseek-flash': 'deepseek-v4.1-flash',
+  'deepseek-v4.1-flash-1017': 'deepseek-v4.1-flash',
   'gpt-5.6': 'gpt-5.6-sol',
   'codex-auto-review': 'gpt-5.4',
   'grok-4-7': 'grok-4.7',
   'k3': 'kimi-k3',
   'kimi-code/k3': 'kimi-k3',
+  'kimi-k3.1': 'kimi-k3.1-pro',
 };
 
 export const catalog: PricingCatalog = {
@@ -50,7 +53,7 @@ export const catalog: PricingCatalog = {
     ) } },
     openai,
     google: { ...google, antigravity: { models: Object.fromEntries(
-      ['gemini-4-neon', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen', 'gemini-3.8-flash']
+      ['gemini-4-neon', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']
         .map(model => [model, google['gemini-cli'].models[model]]),
     ) } },
     moonshot,

@@ -137,8 +137,7 @@ export const anthropic: Record<string, ProductPricing> = {
       },
       'claude-sonnet-5': {
         currency: 'USD',
-        effective_to: '2026-08-31',
-        notes: 'introductory pricing through 2026-08-31; standard pricing is $3 input / $15 output from 2026-09-01',
+        notes: 'permanent standard pricing ($2/$10; planned Sept 2026 increase was cancelled)',
         input_per_million: 2,
         output_per_million: 10,
         cache_write_5m_per_million: 2.5,

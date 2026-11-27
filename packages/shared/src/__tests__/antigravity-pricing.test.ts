@@ -10,6 +10,8 @@ describe('Antigravity API reference prices', () => {
     ['gemini-4-argon-high', 12.1],
     ['gemini-4-hydrogen-medium', 9.075],
     ['gemini-3.8-flash-high', 4.575],
+    ['gemini-3.7-flash-high', 4.575],
+    ['gemini-3.6-flash-medium', 4.575],
   ])('prices %s without multiplying reasoning effort', (model, expected) => {
     const result = calculateCost('google', 'antigravity', model, tokens, { usageTime: '2026-11-23' });
     expect(result.estimatedCostUsd).toBe(expected);

@@ -571,9 +571,68 @@ describe('Routed gateway models and Copilot CLI pricing', () => {
     ['group', 'claude-code', 'group/auto-grok-4-7', 'grok-4.7', 0.8],
     ['grok', 'claude-code', 'grok/grok-4.7', 'grok-4.7', 0.8],
     ['xai', 'claude-code', 'grok-4.7', 'grok-4.7', 0.8],
+    ['agy-cli', 'claude-code', 'agy-cli/gemini-4-neon', 'gemini-4-neon', 1.8],
+    ['deepseek', 'claude-code', 'deepseek-flash', 'deepseek-v4.1-flash', 0.15],
+    ['deepseek', 'claude-code', 'deepseek-v4.1-flash', 'deepseek-v4.1-flash', 0.15],
+    ['factory', 'claude-code', 'factory/deepseek-v4.1-flash-1017', 'deepseek-v4.1-flash', 0.15],
+    ['group', 'claude-code', 'group/auto-deepseek-v4-1-flash', 'deepseek-v4.1-flash', 0.15],
+    ['opensource', 'claude-code', 'opensource/deepseek_v4_1_flash', 'deepseek-v4.1-flash', 0.15],
+    ['openai', 'codex', 'auto/deepseek-v4.1-flash', 'deepseek-v4.1-flash', 0.15],
+    ['anthropic', 'claude-code', 'opensource/glm5.2', 'glm-5.2', Number((3.6 / 7.2).toFixed(4))],
   ])('prices %s/%s/%s via %s at $%s', (provider, product, model, resolvedModel, expectedCost) => {
     expect(calculateCost(provider, product, model, shortTokens)).toMatchObject({
       costStatus: 'exact', resolvedModel, estimatedCostUsd: expectedCost,
+    });
+  });
+
+  it('prices newly added DeepSeek, Zhipu, Moonshot, Alibaba, and xAI models', () => {
+    const oneMillion = { inputTokens: 1_000_000, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 1_000_000 };
+
+    // DeepSeek V4 Pro price changes across historical promo, June list, and August 0813 revision
+    expect(calculateCost('deepseek', 'deepseek-chat', 'deepseek-v4-pro', oneMillion, { usageTime: '2026-05-25' })).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: 1.305,
+    });
+    expect(calculateCost('deepseek', 'deepseek-chat', 'deepseek-v4-pro', oneMillion, { usageTime: '2026-07-01' })).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: 5.22,
+    });
+    expect(calculateCost('deepseek', 'deepseek-chat', 'deepseek-v4-pro', oneMillion, { usageTime: '2026-11-27' })).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: 5.28,
+    });
+
+    // Moonshot Kimi K3.1 Pro (13 + 1.3 + 13*0.5 + 26*0.5 + 68 = 101.8 CNY)
+    expect(calculateCost('moonshot', 'kimi-code', 'kimi-k3.1', {
+      inputTokens: 1_000_000, cachedInputTokens: 1_000_000,
+      cacheWriteTokens: 1_000_000, cacheWrite5mTokens: 500_000, cacheWrite1hTokens: 500_000,
+      outputTokens: 1_000_000,
+    })).toMatchObject({
+      costStatus: 'exact', resolvedModel: 'kimi-k3.1-pro', estimatedCostUsd: Number((101.8 / 7.2).toFixed(4)),
+    });
+
+    // Zhipu GLM-5.3 / Flash / FlashX
+    expect(calculateCost('zhipu', 'glm-chat', 'glm-5.3', oneMillion)).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: Number((36 / 7.2).toFixed(4)),
+    });
+    expect(calculateCost('zhipu', 'glm-chat', 'glm-5.3-flash', oneMillion)).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: Number((3.6 / 7.2).toFixed(4)),
+    });
+
+    // Alibaba Qwen4-Max & tiered Qwen3.6-Plus
+    expect(calculateCost('alibaba', 'qwen-code', 'qwen4-max', oneMillion)).toMatchObject({
+      costStatus: 'exact', estimatedCostUsd: Number((40 / 7.2).toFixed(4)),
+    });
+    expect(calculateCost('alibaba', 'qwen-code', 'qwen3.6-plus', shortTokens)).toMatchObject({
+      costStatus: 'exact', matchedTierIndex: 0, estimatedCostUsd: Number((1.4 / 7.2).toFixed(4)),
+    });
+    expect(calculateCost('alibaba', 'qwen-code', 'qwen3.6-plus', oneMillion)).toMatchObject({
+      costStatus: 'exact', matchedTierIndex: 1, estimatedCostUsd: Number((56 / 7.2).toFixed(4)),
+    });
+
+    // xAI Grok 4.3 & Build 0.1
+    expect(calculateCost('xai', 'opencode', 'grok-4.3', shortTokens)).toMatchObject({
+      costStatus: 'exact', matchedTierIndex: 0, estimatedCostUsd: 0.375,
+    });
+    expect(calculateCost('xai', 'opencode', 'grok-build-0.1', oneMillion)).toMatchObject({
+      costStatus: 'exact', matchedTierIndex: 1, estimatedCostUsd: 6,
     });
   });
 

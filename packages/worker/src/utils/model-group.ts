@@ -1,7 +1,9 @@
 // These are reporting aliases. The original model and provider still identify the stored usage and its price.
 const MODEL_GROUP_ALIASES: Record<string, string> = {
+  'agy-cli/gemini-4-neon': 'gemini-4-neon',
   'auto/deepseek-v4.1-flash': 'deepseek-v4.1-flash',
   'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
+  'deepseek-flash': 'deepseek-v4.1-flash',
   'deepseek-v4.1-flash-1017': 'deepseek-v4.1-flash',
   'factory/deepseek-v4.1-flash-1017': 'deepseek-v4.1-flash',
   'group/auto-deepseek-v4-1-flash': 'deepseek-v4.1-flash',

@@ -129,24 +129,26 @@ export async function handleIngest(request: Request, env: Env): Promise<Response
           AND product = 'claude-code' AND channel = 'cli'
           AND (
             project != 'unknown'
-            OR provider IN ('group', 'factory', 'auto', 'opensource', 'grok')
+            OR provider IN ('group', 'factory', 'auto', 'opensource', 'grok', 'agy-cli')
             OR model LIKE 'group/%'
             OR model LIKE 'factory/%'
             OR model LIKE 'auto/%'
             OR model LIKE 'opensource/%'
             OR model LIKE 'grok/%'
+            OR model LIKE 'agy-cli/%'
           )
       ` : `
         DELETE FROM daily_usage_breakdown
         WHERE device_id = ? AND usage_date = ?
           AND product = 'claude-code' AND channel = 'cli'
           AND (
-            provider IN ('group', 'factory', 'auto', 'opensource', 'grok')
+            provider IN ('group', 'factory', 'auto', 'opensource', 'grok', 'agy-cli')
             OR model LIKE 'group/%'
             OR model LIKE 'factory/%'
             OR model LIKE 'auto/%'
             OR model LIKE 'opensource/%'
             OR model LIKE 'grok/%'
+            OR model LIKE 'agy-cli/%'
           )
       `)
         .bind(tokenPayload.deviceId, day.usageDate));

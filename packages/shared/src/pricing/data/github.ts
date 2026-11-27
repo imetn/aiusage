@@ -39,7 +39,7 @@ export const github: Record<string, ProductPricing> = {
       'claude-haiku-5-5': anthropicModels['claude-haiku-5-5'],
       'claude-sonnet-5': {
         currency: 'USD',
-        notes: 'introductory pricing through 2026-08-31; standard pricing is $3 input / $15 output from 2026-09-01',
+        notes: 'permanent standard pricing ($2/$10)',
         input_per_million: 2,
         cached_input_per_million: 0.2,
         output_per_million: 10,

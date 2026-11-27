@@ -3,13 +3,55 @@ import type { ProductPricing } from '../types.js';
 /**
  * 阿里云通义千问 Qwen。
  * 单价 CNY / 1M tokens。来源：https://help.aliyun.com/zh/model-studio/model-pricing
- * 最近核对：2026-05-24
+ * 最近核对：2026-11-27
  *
- * 多数 qwen3-* 模型按 input 长度分档（32K / 128K / 256K / 1M）。
+ * 多数 qwen3-* 模型按 input 长度分档（32K / 128K / 256K / 1M）；qwen4-max 全 1M 统一单价。
  */
 export const alibaba: Record<string, ProductPricing> = {
   'qwen-code': {
     models: {
+      // https://help.aliyun.com/zh/model-studio/model-pricing (2026-11-27)
+      'qwen4-max': {
+        currency: 'CNY',
+        notes: '1M context; flat rate across standard and thinking modes',
+        input_per_million: 10,
+        output_per_million: 30,
+      },
+      'qwen3.8-max': {
+        currency: 'CNY',
+        input_per_million: 12,
+        output_per_million: 36,
+      },
+      'qwen3.7-max': {
+        currency: 'CNY',
+        input_per_million: 12,
+        output_per_million: 36,
+      },
+      'qwen3.6-plus': {
+        currency: 'CNY',
+        notes: 'tiered by input length, 256K threshold',
+        tiers: [
+          { threshold: 256_000, input_per_million: 2, output_per_million: 12 },
+          { input_per_million: 8, output_per_million: 48 },
+        ],
+      },
+      'qwen3.5-plus': {
+        currency: 'CNY',
+        notes: 'tiered by input length',
+        tiers: [
+          { threshold: 128_000, input_per_million: 0.8, output_per_million: 4.8 },
+          { threshold: 256_000, input_per_million: 2, output_per_million: 12 },
+          { input_per_million: 4, output_per_million: 24 },
+        ],
+      },
+      'qwen3.5-flash': {
+        currency: 'CNY',
+        notes: 'tiered by input length',
+        tiers: [
+          { threshold: 128_000, input_per_million: 0.2, output_per_million: 2 },
+          { input_per_million: 0.8, output_per_million: 8 },
+        ],
+      },
       'qwen3-coder-plus': {
         currency: 'CNY',
         notes: 'tiered by input length',

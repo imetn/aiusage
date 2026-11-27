@@ -166,3 +166,24 @@ GPT-6.1 Sol 单请求输入超过 272K 时，输入与缓存费率为 2 倍，�
 单位为 USD / 百万 Token。带费率后缀的模型按同一上下文档位乘倍率，Fast/Priority 为 2 倍，Batch 为 0.5 倍，Ultrafast 在 2027-03-01 00:00（美国太平洋时间）从 3 倍变为 6 倍。逐请求按时间戳切价，只有设备本地日期的聚合记录在切价临界日按日期估算。Codex 缓存写入总量按 30 分钟费率计算。
 
 来源：[OpenAI Astra 模型卡](https://developers.openai.com/api/docs/models/gpt-6.2-astra)、[OpenAI Sol 模型卡](https://developers.openai.com/api/docs/models/gpt-6.2-sol)、[OpenAI 定价](https://developers.openai.com/api/docs/pricing)。
+
+## 2026-11-27 核对
+
+补齐线上路由命中的模型与扩展档主流国产/xAI/Gemini Flash 新版本，并将 `agy-cli/` 加入路由网关剥离前缀、在 Antigravity 离线 ID 映射中补齐 Gemini 4 Neon（`1532` High / `1534` Low / `1535` XHigh）：
+
+| 厂商 / 模型 | 币种 | 输入 | 缓存命中 | 缓存写入 | 输出 | 备注 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| DeepSeek `deepseek-v4.1-flash`（含 `deepseek-flash` / `-1017`） | USD | 0.30 | 0.006 | — | 1.20 | 峰时标准价；闲时 5 折（0.15 / 0.003 / 0.60） |
+| DeepSeek `deepseek-v4-pro`（`2026-08-13` 起） | USD | 1.32 | 0.044 | — | 3.96 | 保留 `2026-05-31` 前促销价与 `2026-06-01` 过渡价 |
+| 智谱 `glm-5.2` / `glm-5.3` | CNY | 8 | 2 | — | 28 | 1M 上下文统一单价 |
+| 智谱 `glm-5.3-flash` / `glm-5.3-flashx` | CNY | 0.8 / 2 | 0.23 / 0.57 | — | 2.8 / 7 | 1M 上下文 |
+| Moonshot `kimi-k3.1-pro` | CNY | 13 | 1.3 | 13（5m）/ 26（1h） | 68 | 同步补齐 `kimi-k3` 的 5m/1h 写入价 |
+| Moonshot `kimi-k3.1-pro-highspeed` | CNY | 26 | 1.3 | 26（5m）/ 52（1h） | 136 | 高速版 |
+| 阿里云 `qwen4-max` / `qwen3.8-max` / `qwen3.7-max` | CNY | 10 / 12 / 12 | — | — | 30 / 36 / 36 | `qwen4-max` 1M 不分档 |
+| 阿里云 `qwen3.6-plus` / `qwen3.5-plus` / `qwen3.5-flash` | CNY | 阶梯 | — | — | 阶梯 | 分别按 256K / 128K-256K / 128K 分档 |
+| Google `gemini-3.7-flash` / `gemini-3.6-flash` | USD | 0.75 | 0.075 | — | 3.75 | `2027-01-01` 起 1.50 / 0.15 / 7.50 |
+| xAI `grok-4.6` / `4.5` / `4.3` / `4.20` / `grok-build-0.1` | USD | 1–2 | 0.2–0.5 | 同输入 | 2–6 | ≥200K 输入整次请求翻倍 |
+
+同时清理 `claude-sonnet-5` 已取消涨价的过时备注（永久维持 $2/$10），并更新 `gpt-5.6-sol` 促销延期备注。
+
+来源：[DeepSeek 定价](https://api-docs.deepseek.com/quick_start/pricing/)、[智谱 BigModel](https://bigmodel.cn/pricing)、[Kimi 开放平台](https://platform.kimi.com/docs/pricing/chat)、[阿里云百炼](https://help.aliyun.com/zh/model-studio/model-pricing)、[Google Gemini 定价](https://ai.google.dev/gemini-api/docs/pricing)、[xAI 定价](https://docs.x.ai/developers/pricing)。

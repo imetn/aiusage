@@ -31,5 +31,10 @@ test('catalog.json exposes the public pricing catalog', async () => {
   assert.equal(catalog.providers.openai.codex.models['gpt-6-luna']?.tiers?.[1]?.output_per_million, 0.75);
   assert.equal(catalog.providers.xai.opencode.models['grok-4.7']?.tiers?.[1]?.input_per_million, 4);
   assert.equal(catalog.aliases?.k3, 'kimi-k3');
+  assert.equal(catalog.aliases?.['deepseek-flash'], 'deepseek-v4.1-flash');
   assert.equal(catalog.providers.moonshot['kimi-code'].models['kimi-k3']?.cached_input_per_million, 2);
+  assert.equal(catalog.providers.moonshot['kimi-code'].models['kimi-k3.1-pro']?.output_per_million, 68);
+  assert.equal(catalog.providers.deepseek['deepseek-chat'].models['deepseek-v4.1-flash']?.output_per_million, 1.2);
+  assert.equal(catalog.providers.zhipu['glm-chat'].models['glm-5.2']?.output_per_million, 28);
+  assert.equal(catalog.providers.alibaba['qwen-code'].models['qwen4-max']?.input_per_million, 10);
 });

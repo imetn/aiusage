@@ -203,7 +203,7 @@ export function calculateCost(
     : provider;
   const pricedProduct = antigravity
     ? (REFERENCE_PRODUCTS[pricedProvider] ?? product)
-    : !cat.providers[pricedProvider]?.[product] && product === 'claude-code'
+    : !cat.providers[pricedProvider]?.[product] && (product === 'claude-code' || routed.stripped)
       ? (REFERENCE_PRODUCTS[pricedProvider] ?? product)
       : product;
   const { baseModel, tier } = splitServiceTierSuffix(pricedModel);

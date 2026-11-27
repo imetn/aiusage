@@ -142,7 +142,7 @@ export const openai: Record<string, ProductPricing> = {
       // ── GPT-5.6 系列 ──
       'gpt-5.6-sol': {
         currency: 'USD',
-        notes: 'promotional pricing available at least through 2026-11-21; prompts over 272K input tokens bill the full request at long-context rates',
+        notes: 'promotional pricing extended through 2026-11-30 (standard $5/$0.5/$30 thereafter); prompts over 272K input tokens bill the full request at long-context rates',
         input_per_million: 4,
         cached_input_per_million: 0.4,
         cache_write_per_million: 5,
