@@ -1,0 +1,5 @@
+# Vite emits content-hashed filenames under /assets, so a changed file always
+# gets a new URL. Browsers can reuse these without revalidating; HTML entry
+# points keep the default revalidation so new deployments are picked up.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
